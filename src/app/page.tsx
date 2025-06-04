@@ -120,7 +120,7 @@ function Hero() {
               Start Trading Now
             </button>
             <button className="px-8 py-4 bg-neutral-800 text-white font-semibold rounded-xl hover:bg-neutral-700 transition-all duration-300 border border-neutral-700 hover:border-neutral-600">
-              View Demo
+              Paper Trading
             </button>
           </motion.div>
         </div>

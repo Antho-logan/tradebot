@@ -1,7 +1,7 @@
 'use client';
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Star, Send, X, Minimize2, Key, Eye, EyeOff } from 'lucide-react';
+import { Star, Send, X, Minimize2, Key, Eye, EyeOff, Maximize2 } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -13,6 +13,7 @@ interface Message {
 export default function AskAIChat() {
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [tempApiKey, setTempApiKey] = useState('');
   const [showTempKey, setShowTempKey] = useState(false);
@@ -154,6 +155,7 @@ export default function AskAIChat() {
   const handleCloseChat = () => {
     setIsOpen(false);
     setIsMinimized(false);
+    setIsFullscreen(false);
     // Reset conversation when closing chat
     setMessages([
       {
@@ -168,6 +170,11 @@ export default function AskAIChat() {
   const handleMinimize = () => {
     setIsMinimized(true);
     setIsOpen(false); // Close the chat window and show the Ask AI button
+    setIsFullscreen(false);
+  };
+
+  const handleToggleFullscreen = () => {
+    setIsFullscreen(!isFullscreen);
   };
 
   return (
@@ -181,6 +188,7 @@ export default function AskAIChat() {
         onClick={() => {
           setIsOpen(true);
           setIsMinimized(false);
+          setIsFullscreen(false);
         }}
         className={`fixed bottom-6 right-6 z-50 px-6 py-4 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white rounded-full shadow-lg hover:shadow-emerald-500/25 flex items-center gap-3 transition-all duration-300 ${isOpen ? 'hidden' : 'flex'}`}
         aria-label="Ask AI Assistant"
@@ -283,7 +291,11 @@ export default function AskAIChat() {
             }}
             exit={{ opacity: 0, scale: 0.8, y: 20 }}
             transition={{ duration: 0.3, ease: "easeOut" }}
-            className="fixed bottom-6 right-6 z-50 w-96 h-[500px] bg-gradient-to-br from-neutral-900 to-neutral-950 border border-neutral-700 rounded-2xl shadow-2xl overflow-hidden"
+            className={`fixed z-50 bg-gradient-to-br from-neutral-900 to-neutral-950 border border-neutral-700 shadow-2xl overflow-hidden ${
+              isFullscreen 
+                ? 'inset-4 rounded-2xl' 
+                : 'bottom-6 right-6 w-96 h-[500px] rounded-2xl'
+            }`}
           >
             {/* Header */}
             <div className="bg-gradient-to-r from-emerald-500 to-emerald-600 p-4 flex items-center justify-between">
@@ -297,6 +309,16 @@ export default function AskAIChat() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleToggleFullscreen();
+                  }}
+                  className="p-1 hover:bg-white/20 rounded transition-colors"
+                  aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                >
+                  <Maximize2 className="w-4 h-4 text-white" />
+                </button>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -323,7 +345,9 @@ export default function AskAIChat() {
             {/* Chat Content */}
             <>
               {/* Messages */}
-              <div className="flex-1 p-4 h-80 overflow-y-auto space-y-4">
+              <div className={`flex-1 p-4 overflow-y-auto space-y-4 ${
+                isFullscreen ? 'h-[calc(100vh-200px)]' : 'h-80'
+              }`}>
                   {messages.map((message) => (
                     <motion.div
                       key={message.id}

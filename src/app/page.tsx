@@ -5,10 +5,10 @@ import {
   BarChart3, ShieldCheck, Zap, BookOpen, Radar, Activity, Github, Bell, Paperclip, Send, TrendingUp, TrendingDown, DollarSign, Target, Brain
 } from "lucide-react";
 import { useStrategyBuilderModal } from './StrategyBuilderModal';
-import Image from "next/image";
 import GlobalPnLWidget from "./GlobalPnLWidget";
 import AskAIChat from "./components/AskAIChat";
 import WatchlistPanel from "./components/WatchlistPanel";
+import CVDChart from "./components/CVDChart";
 import Link from "next/link";
 
 const fadeUp = {
@@ -498,7 +498,7 @@ function FeatureGrid({ openStrategyModal }: { openStrategyModal: () => void }) {
 
 function TradeJournalInput({ onSend }: { onSend: (msg: string) => void }) {
   const [value, setValue] = React.useState('');
-  const [selectedImage, setSelectedImage] = React.useState<File | null>(null);
+  const [setSelectedImage] = React.useState<File | null>(null);
   const [imagePreview, setImagePreview] = React.useState<string | null>(null);
   
   // Trading fields
@@ -898,7 +898,6 @@ export default function Home() {
   }, []);
 
   const [strategyModal, openStrategyModal] = useStrategyBuilderModal();
-  const [journal, setJournal] = React.useState<string[]>([]);
 
   return (
     <div className="bg-neutral-950 min-h-screen font-sans main-container">
@@ -907,9 +906,10 @@ export default function Home() {
       <main className="w-full">
         <Hero />
         <PnLSection />
+        <CVDChart />
         <StatsStrip />
         <FeatureGrid openStrategyModal={openStrategyModal} />
-        <TradeJournalInput onSend={msg => setJournal(j => [...j, msg])} />
+        <TradeJournalInput onSend={msg => console.log('Journal entry:', msg)} />
         <WatchlistPanel />
       </main>
       

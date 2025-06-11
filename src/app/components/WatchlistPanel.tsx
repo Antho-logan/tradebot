@@ -8,6 +8,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { TrendingUp, TrendingDown } from 'lucide-react';
+import { formatPrice, formatPercent } from '../utils/formatters';
 
 interface WatchlistItem {
   symbol: string;
@@ -48,20 +49,7 @@ const itemVariants = {
   }
 };
 
-function formatPrice(price: number): string {
-  if (price >= 1000) {
-    return price.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-  } else if (price >= 1) {
-    return price.toFixed(2);
-  } else {
-    return price.toFixed(4);
-  }
-}
 
-function formatPercent(percent: number): string {
-  const sign = percent >= 0 ? '+' : '';
-  return `${sign}${percent.toFixed(2)}%`;
-}
 
 export default function WatchlistPanel() {
   return (

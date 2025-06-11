@@ -1,0 +1,75 @@
+strategy_name: "Range Fibonacci Breakout"
+version: "1.0.0"
+description: "Range-bound trading with Fibonacci retracements and order flow confirmation"
+
+# Trading pairs configuration
+pairs:
+  major: ["BTC/USDT", "ETH/USDT"]
+  minor: ["SOL/USDT", "AVAX/USDT", "MATIC/USDT", "DOT/USDT"]
+  
+# Risk management settings
+risk:
+  per_trade_fraction: 0.02  # 2% risk per trade
+  max_concurrent_trades: 3
+  max_daily_drawdown: 0.05  # 5% max daily drawdown
+  position_sizing_method: "fixed_fraction"
+  
+# Stop loss configuration
+stop_loss:
+  initial_buffer_pct: 2.5   # 2.5% buffer below/above range
+  trailing_enabled: true
+  trailing_distance_pct: 1.0
+  breakeven_trigger_pct: 1.5
+  
+# Take profit levels (Fibonacci-based)
+take_profit:
+  major_pairs:
+    levels: [0.5, 0.618, 0.65]  # 50%, 61.8%, 65% of range
+    partial_close_pct: [0.33, 0.33, 0.34]  # Close 1/3 at each level
+  minor_pairs:
+    levels: [0.705, 0.75, 0.786]  # 70.5%, 75%, 78.6% of range
+    partial_close_pct: [0.4, 0.3, 0.3]
+    
+# Technical indicator settings
+indicators:
+  fvg:
+    min_gap_pct: 0.1  # Minimum 0.1% gap for FVG
+    max_age_bars: 20  # FVG expires after 20 bars
+  order_blocks:
+    min_volume_ratio: 1.5  # 1.5x average volume
+    lookback_bars: 50
+  range_detection:
+    min_touches: 3  # Minimum touches to confirm range
+    tolerance_pct: 0.25  # 0.25% tolerance for range edges
+    
+# Order flow filter
+order_flow_filter:
+  enabled: true
+  lookback_bars: 10
+  min_delta: 1000  # Minimum CVD delta for confirmation
+  
+# Timeframe settings
+timeframes:
+  range_detection: "4h"  # Use 4H for range identification
+  entry_signal: "15m"    # Use 15m for entry signals
+  
+# Market conditions
+market_conditions:
+  min_volatility: 0.02   # Minimum 2% daily volatility
+  max_volatility: 0.15   # Maximum 15% daily volatility
+  avoid_news_events: true
+  
+# Backtesting parameters
+backtest:
+  start_date: "2023-01-01"
+  end_date: "2024-12-31"
+  initial_capital: 10000
+  commission: 0.001  # 0.1% commission
+  slippage: 0.0005   # 0.05% slippage
+  
+# Logging and monitoring
+logging:
+  level: "INFO"
+  save_trades: true
+  save_signals: true
+  performance_metrics: true 

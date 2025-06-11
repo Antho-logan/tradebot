@@ -5,9 +5,10 @@
  */
 
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
+import useSWR from 'swr';
 import { 
   ArrowLeft, 
   Plus, 
@@ -29,19 +30,29 @@ import {
 
 interface Trade {
   id: string;
-  entry: string;
+  entry?: string;
   image?: string | null;
-  timestamp: string;
+  timestamp?: string;
   pair: string;
-  type: 'Long' | 'Short';
-  status: 'Open' | 'Closed' | 'Pending';
+  type?: 'Long' | 'Short';
+  side?: 'long' | 'short';
+  status: 'Open' | 'Closed' | 'Pending' | 'open' | 'closed' | 'cancelled';
   entryPrice?: number;
+  entry_price?: number;
   exitPrice?: number;
+  exit_price?: number;
   quantity?: number;
+  size_usd?: number;
   pnl?: number;
   stopLoss?: number;
   takeProfit1?: number;
   takeProfit2?: number;
+  created_at?: string;
+  closed_at?: string;
+  notes?: string;
+  confidence?: number;
+  strategy?: string;
+  source?: 'manual' | 'paper_trading' | 'blofin_live';
   riskReward?: {
     risk: number;
     reward1: number;
@@ -51,40 +62,77 @@ interface Trade {
   };
 }
 
+const fetcher = (url: string) => fetch(url).then((res) => res.json());
+
 const fadeUp = {
   hidden: { opacity: 0, y: 20 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.6 } }
 };
 
 export default function TradeJournalPage() {
-  const [trades, setTrades] = useState<Trade[]>([]);
-  const [filteredTrades, setFilteredTrades] = useState<Trade[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [sourceFilter, setSourceFilter] = useState<string>('all');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [sortField, setSortField] = useState<keyof Trade>('timestamp');
+  const [sortField, setSortField] = useState<keyof Trade>('created_at');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
-  // Load trades from localStorage
-  useEffect(() => {
-    const savedTrades = localStorage.getItem('tradegpt-trades');
-    if (savedTrades) {
-      const parsedTrades = JSON.parse(savedTrades);
-      setTrades(parsedTrades);
-      setFilteredTrades(parsedTrades);
-    }
-  }, []);
+  // Fetch trades from API (includes both manual and paper trades)
+  const { data: tradesData, error, mutate } = useSWR('/api/trade-journal', fetcher, {
+    refreshInterval: 10000 // Refresh every 10 seconds to catch new paper trades
+  });
 
-  // Filter and search trades
-  useEffect(() => {
-    let filtered = trades.filter(trade => {
-      const matchesSearch = trade.entry.toLowerCase().includes(searchTerm.toLowerCase()) ||
+  const trades = tradesData?.data || [];
+
+  // Merge API trades with legacy localStorage trades using useMemo
+  const allTrades = useMemo(() => {
+    let mergedTrades = [...trades];
+    
+    try {
+      const savedTrades = localStorage.getItem('tradegpt-trades');
+      if (savedTrades) {
+        const parsedTrades = JSON.parse(savedTrades);
+        // Convert legacy format to new format
+        const convertedTrades = parsedTrades.map((trade: any) => ({
+          ...trade,
+          source: 'manual',
+          created_at: trade.timestamp,
+          entry_price: trade.entryPrice,
+          exit_price: trade.exitPrice,
+          size_usd: trade.quantity ? trade.quantity * (trade.entryPrice || 0) : 0,
+          side: trade.type?.toLowerCase(),
+          status: trade.status?.toLowerCase()
+        }));
+        
+        // Merge with API data (API data takes precedence)
+        mergedTrades = [...trades, ...convertedTrades.filter((legacy: any) => 
+          !trades.some((apiTrade: any) => apiTrade.id === legacy.id)
+        )];
+      }
+    } catch (error) {
+      console.error('Error parsing localStorage trades:', error);
+    }
+    
+    return mergedTrades;
+  }, [trades]);
+
+  // Filter and search trades using useMemo
+  const filteredTrades = useMemo(() => {
+    let filtered = allTrades.filter(trade => {
+      const searchText = (trade.entry || trade.notes || '').toLowerCase();
+      const matchesSearch = searchText.includes(searchTerm.toLowerCase()) ||
                            trade.pair.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesStatus = statusFilter === 'all' || trade.status === statusFilter;
-      const matchesType = typeFilter === 'all' || trade.type === typeFilter;
       
-      return matchesSearch && matchesStatus && matchesType;
+      const tradeStatus = trade.status?.toLowerCase() || '';
+      const matchesStatus = statusFilter === 'all' || tradeStatus === statusFilter.toLowerCase();
+      
+      const tradeType = trade.type?.toLowerCase() || trade.side?.toLowerCase() || '';
+      const matchesType = typeFilter === 'all' || tradeType === typeFilter.toLowerCase();
+      
+      const matchesSource = sourceFilter === 'all' || trade.source === sourceFilter;
+      
+      return matchesSearch && matchesStatus && matchesType && matchesSource;
     });
 
     // Sort trades
@@ -99,8 +147,8 @@ export default function TradeJournalPage() {
       }
     });
 
-    setFilteredTrades(filtered);
-  }, [trades, searchTerm, statusFilter, typeFilter, sortField, sortDirection]);
+    return filtered;
+  }, [allTrades, searchTerm, statusFilter, typeFilter, sourceFilter, sortField, sortDirection]);
 
   const handleSort = (field: keyof Trade) => {
     if (sortField === field) {
@@ -113,9 +161,19 @@ export default function TradeJournalPage() {
 
   const handleDeleteTrade = (id: string) => {
     if (confirm('Are you sure you want to delete this trade?')) {
-      const updatedTrades = trades.filter(trade => trade.id !== id);
-      setTrades(updatedTrades);
-      localStorage.setItem('tradegpt-trades', JSON.stringify(updatedTrades));
+      // For localStorage trades, remove from localStorage
+      const savedTrades = localStorage.getItem('tradegpt-trades');
+      if (savedTrades) {
+        try {
+          const parsedTrades = JSON.parse(savedTrades);
+          const updatedTrades = parsedTrades.filter((trade: any) => trade.id !== id);
+          localStorage.setItem('tradegpt-trades', JSON.stringify(updatedTrades));
+          // Trigger a re-fetch to update the UI
+          mutate();
+        } catch (error) {
+          console.error('Error deleting trade from localStorage:', error);
+        }
+      }
     }
   };
 
@@ -139,7 +197,8 @@ export default function TradeJournalPage() {
   };
 
   const getTypeColor = (type: string) => {
-    return type === 'Long' ? 'text-emerald-400' : 'text-red-400';
+    const normalizedType = type.toLowerCase();
+    return normalizedType === 'long' ? 'text-emerald-400' : 'text-red-400';
   };
 
   return (
@@ -185,7 +244,7 @@ export default function TradeJournalPage() {
           variants={fadeUp}
           className="bg-neutral-900 rounded-xl border border-neutral-800 p-6 mb-6"
         >
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             {/* Search */}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-neutral-400 w-4 h-4" />
@@ -198,6 +257,18 @@ export default function TradeJournalPage() {
               />
             </div>
 
+            {/* Source Filter */}
+            <select
+              value={sourceFilter}
+              onChange={(e) => setSourceFilter(e.target.value)}
+              className="px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-white focus:outline-none focus:border-emerald-500"
+            >
+              <option value="all">All Sources</option>
+              <option value="manual">Manual Trades</option>
+              <option value="paper_trading">Paper Trading</option>
+              <option value="blofin_live">BloFin Live</option>
+            </select>
+
             {/* Status Filter */}
             <select
               value={statusFilter}
@@ -205,9 +276,9 @@ export default function TradeJournalPage() {
               className="px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-white focus:outline-none focus:border-emerald-500"
             >
               <option value="all">All Status</option>
-              <option value="Open">Open</option>
-              <option value="Closed">Closed</option>
-              <option value="Pending">Pending</option>
+              <option value="open">Open</option>
+              <option value="closed">Closed</option>
+              <option value="cancelled">Cancelled</option>
             </select>
 
             {/* Type Filter */}
@@ -217,14 +288,21 @@ export default function TradeJournalPage() {
               className="px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-white focus:outline-none focus:border-emerald-500"
             >
               <option value="all">All Types</option>
-              <option value="Long">Long</option>
-              <option value="Short">Short</option>
+              <option value="long">Long</option>
+              <option value="short">Short</option>
             </select>
 
             {/* Stats */}
-            <div className="flex items-center gap-4 text-sm text-neutral-400">
-              <span>Total: {filteredTrades.length}</span>
-              <span>Open: {filteredTrades.filter(t => t.status === 'Open').length}</span>
+            <div className="flex flex-col gap-1 text-sm text-neutral-400">
+              <div className="flex items-center gap-4">
+                <span>Total: {filteredTrades.length}</span>
+                <span>Open: {filteredTrades.filter(t => t.status?.toLowerCase() === 'open').length}</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span>Manual: {filteredTrades.filter(t => t.source === 'manual').length}</span>
+                <span>Paper: {filteredTrades.filter(t => t.source === 'paper_trading').length}</span>
+                <span>Live: {filteredTrades.filter(t => t.source === 'blofin_live').length}</span>
+              </div>
             </div>
           </div>
         </motion.div>
@@ -242,7 +320,7 @@ export default function TradeJournalPage() {
                 <tr>
                   <th className="text-left p-4 font-medium text-neutral-300">
                     <button 
-                      onClick={() => handleSort('timestamp')}
+                      onClick={() => handleSort('created_at')}
                       className="flex items-center gap-2 hover:text-white transition-colors"
                     >
                       <Calendar className="w-4 h-4" />
@@ -260,12 +338,13 @@ export default function TradeJournalPage() {
                   </th>
                   <th className="text-left p-4 font-medium text-neutral-300">
                     <button 
-                      onClick={() => handleSort('type')}
+                      onClick={() => handleSort('side')}
                       className="flex items-center gap-2 hover:text-white transition-colors"
                     >
                       Type
                     </button>
                   </th>
+                  <th className="text-left p-4 font-medium text-neutral-300">Source</th>
                   <th className="text-left p-4 font-medium text-neutral-300">
                     <button 
                       onClick={() => handleSort('entryPrice')}
@@ -295,7 +374,7 @@ export default function TradeJournalPage() {
               <tbody>
                 {filteredTrades.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="text-center py-12 text-neutral-400">
+                    <td colSpan={12} className="text-center py-12 text-neutral-400">
                       <div className="flex flex-col items-center gap-3">
                         <Target className="w-12 h-12 text-neutral-600" />
                         <p>No trades found</p>
@@ -309,30 +388,53 @@ export default function TradeJournalPage() {
                     </td>
                   </tr>
                 ) : (
-                  filteredTrades.map((trade, index) => (
+                  filteredTrades.map((trade, index) => {
+                    const tradeDate = trade.created_at || trade.timestamp || '';
+                    const tradeType = trade.side || trade.type?.toLowerCase() || '';
+                    const entryPrice = trade.entry_price || trade.entryPrice || 0;
+                    const exitPrice = trade.exit_price || trade.exitPrice;
+                    const size = trade.size_usd || (trade.quantity && trade.entryPrice ? trade.quantity * trade.entryPrice : 0);
+                    
+                    return (
                     <tr key={trade.id} className="border-b border-neutral-800 hover:bg-neutral-800/50 transition-colors">
                       <td className="p-4 text-sm text-neutral-300">
-                        {formatDate(trade.timestamp)}
+                        {formatDate(tradeDate)}
                       </td>
                       <td className="p-4">
                         <span className="font-mono font-medium text-white">{trade.pair}</span>
                       </td>
                       <td className="p-4">
-                        <div className={`flex items-center gap-2 ${getTypeColor(trade.type)}`}>
-                          {trade.type === 'Long' ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-                          {trade.type}
+                        <div className={`flex items-center gap-2 ${getTypeColor(tradeType)}`}>
+                          {tradeType === 'long' ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                          {tradeType.charAt(0).toUpperCase() + tradeType.slice(1)}
                         </div>
                       </td>
                       <td className="p-4">
-                        {trade.entryPrice ? (
-                          <span className="font-mono text-white">${trade.entryPrice.toLocaleString()}</span>
+                        <div className="flex items-center gap-2">
+                          {trade.source === 'paper_trading' && (
+                            <span className="px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded font-medium">Paper Trading</span>
+                          )}
+                          {trade.source === 'manual' && (
+                            <span className="px-2 py-1 bg-emerald-500/20 text-emerald-400 text-xs rounded font-medium">Manual Trade</span>
+                          )}
+                          {trade.source === 'blofin_live' && (
+                            <span className="px-2 py-1 bg-orange-500/20 text-orange-400 text-xs rounded font-medium">BloFin Live</span>
+                          )}
+                          {trade.strategy && (
+                            <span className="px-2 py-1 bg-purple-500/20 text-purple-400 text-xs rounded">{trade.strategy}</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-4">
+                        {entryPrice ? (
+                          <span className="font-mono text-white">${entryPrice.toLocaleString()}</span>
                         ) : (
                           <span className="text-neutral-500 text-sm">-</span>
                         )}
                       </td>
                       <td className="p-4">
                         {trade.stopLoss ? (
-                          <span className="font-mono text-red-400">${trade.stopLoss.toLocaleString()}</span>
+                          <span className="font-mono text-red-400">${trade.stopLoss.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')}</span>
                         ) : (
                           <span className="text-neutral-500 text-sm">-</span>
                         )}
@@ -340,10 +442,10 @@ export default function TradeJournalPage() {
                       <td className="p-4">
                         <div className="flex flex-col gap-1">
                           {trade.takeProfit1 && (
-                            <span className="font-mono text-emerald-400 text-sm">TP1: ${trade.takeProfit1.toLocaleString()}</span>
+                            <span className="font-mono text-emerald-400 text-sm">TP1: ${trade.takeProfit1.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')}</span>
                           )}
                           {trade.takeProfit2 && (
-                            <span className="font-mono text-emerald-400 text-sm">TP2: ${trade.takeProfit2.toLocaleString()}</span>
+                            <span className="font-mono text-emerald-400 text-sm">TP2: ${trade.takeProfit2.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')}</span>
                           )}
                           {!trade.takeProfit1 && !trade.takeProfit2 && (
                             <span className="text-neutral-500 text-sm">-</span>
@@ -370,9 +472,28 @@ export default function TradeJournalPage() {
                         </span>
                       </td>
                       <td className="p-4 max-w-xs">
-                        <p className="text-sm text-neutral-300 truncate" title={trade.entry}>
-                          {trade.entry}
-                        </p>
+                        <div className="text-sm text-neutral-300">
+                          {trade.notes && (
+                            <p className="truncate" title={trade.notes}>
+                              {trade.notes}
+                            </p>
+                          )}
+                          {trade.entry && !trade.notes && (
+                            <p className="truncate" title={trade.entry}>
+                              {trade.entry}
+                            </p>
+                          )}
+                          {trade.confidence && (
+                            <p className="text-xs text-neutral-400 mt-1">
+                              Confidence: {Math.round(trade.confidence * 100)}%
+                            </p>
+                          )}
+                          {trade.pnl !== undefined && trade.pnl !== 0 && (
+                            <p className={`text-xs mt-1 ${trade.pnl > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              P&L: ${trade.pnl.toFixed(2)}
+                            </p>
+                          )}
+                        </div>
                       </td>
                       <td className="p-4">
                         {trade.image ? (
@@ -407,7 +528,8 @@ export default function TradeJournalPage() {
                         </div>
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>

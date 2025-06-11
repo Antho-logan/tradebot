@@ -120,9 +120,9 @@ function ResultsTable() {
             <tr key={i} className="border-b border-neutral-800 last:border-0">
               <td className="py-2 px-3">{r.date}</td>
               <td className="py-2 px-3">{r.type}</td>
-              <td className="py-2 px-3 text-right">${r.price.toLocaleString('en-US')}</td>
+              <td className="py-2 px-3 text-right">${r.price.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')}</td>
               <td className="py-2 px-3 text-right">{r.qty}</td>
-              <td className={`py-2 px-3 text-right ${r.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>{r.pnl >= 0 ? '+' : ''}${r.pnl.toLocaleString('en-US')}</td>
+              <td className={`py-2 px-3 text-right ${r.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>{r.pnl >= 0 ? '+' : ''}${r.pnl.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')}</td>
             </tr>
           ))}
         </tbody>

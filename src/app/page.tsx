@@ -8,8 +8,13 @@ import { useStrategyBuilderModal } from './StrategyBuilderModal';
 import Image from "next/image";
 import GlobalPnLWidget from "./GlobalPnLWidget";
 import AskAIChat from "./components/AskAIChat";
-import WatchlistPanel from "./components/WatchlistPanel";
+import LiveMarketData from "../components/LiveMarketData";
+import CVDWidget from "../components/cvd-widget";
+import LiveTradingInterface from "../components/LiveTradingInterface";
+import PaperTradingDashboard from "../components/PaperTradingDashboard";
+import BotControlPanel from "../components/BotControlPanel";
 import Link from "next/link";
+import useSWR from 'swr';
 
 const fadeUp = {
   hidden: { opacity: 0, y: 32 },
@@ -46,6 +51,17 @@ function Navbar() {
           <span className="font-bold text-xl tracking-tight text-white">TradeGPT</span>
         </motion.div>
         <div className="flex items-center gap-3">
+          <motion.a 
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            href="/dashboard" 
+            className="flex items-center gap-2 text-neutral-300 hover:text-blue-400 transition-all duration-300 px-4 py-2 rounded-lg hover:bg-neutral-800/50"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+            <span className="hidden sm:inline">Dashboard</span>
+          </motion.a>
           <motion.a 
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
@@ -141,44 +157,8 @@ function Hero() {
               <span className="text-neutral-400 text-sm">Live Trading Interface</span>
             </div>
             
-            {/* Mock Dashboard Content */}
-            <div className="p-8">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                <div className="bg-neutral-700/50 rounded-xl p-4">
-                  <div className="flex items-center gap-3 mb-3">
-                    <TrendingUp className="w-5 h-5 text-emerald-400" />
-                    <span className="text-white font-medium">Portfolio</span>
-                  </div>
-                  <div className="text-2xl font-bold text-white">$127,450</div>
-                  <div className="text-emerald-400 text-sm">+12.4% today</div>
-                </div>
-                
-                <div className="bg-neutral-700/50 rounded-xl p-4">
-                  <div className="flex items-center gap-3 mb-3">
-                    <Target className="w-5 h-5 text-blue-400" />
-                    <span className="text-white font-medium">Active Trades</span>
-                  </div>
-                  <div className="text-2xl font-bold text-white">8</div>
-                  <div className="text-blue-400 text-sm">3 pending</div>
-                </div>
-                
-                <div className="bg-neutral-700/50 rounded-xl p-4">
-                  <div className="flex items-center gap-3 mb-3">
-                    <DollarSign className="w-5 h-5 text-yellow-400" />
-                    <span className="text-white font-medium">Today's P&L</span>
-                  </div>
-                  <div className="text-2xl font-bold text-white">+$2,847</div>
-                  <div className="text-yellow-400 text-sm">+2.3%</div>
-                </div>
-              </div>
-              
-              {/* Mock Chart Area */}
-              <div className="bg-neutral-800/50 rounded-xl p-6 h-48 flex items-center justify-center">
-                <div className="w-full h-full bg-gradient-to-r from-emerald-500/20 via-emerald-400/30 to-emerald-500/20 rounded-lg flex items-center justify-center">
-                  <span className="text-neutral-400 text-lg font-medium">Live Trading Chart</span>
-                </div>
-              </div>
-            </div>
+            {/* Live Dashboard Content */}
+            <LiveTradingInterface />
           </div>
           
           {/* Floating Elements */}
@@ -241,12 +221,14 @@ function PnLSection() {
             >
               Execute New Trade
             </motion.button>
-            <motion.button
-              variants={fadeUp}
-              className="w-full px-6 py-4 bg-neutral-800 hover:bg-neutral-700 text-white font-semibold rounded-xl transition-all duration-300 border border-neutral-700 hover:border-neutral-600"
-            >
-              View Full Portfolio
-            </motion.button>
+            <Link href="/portfolio">
+              <motion.button
+                variants={fadeUp}
+                className="w-full px-6 py-4 bg-neutral-800 hover:bg-neutral-700 text-white font-semibold rounded-xl transition-all duration-300 border border-neutral-700 hover:border-neutral-600"
+              >
+                View Full Portfolio
+              </motion.button>
+            </Link>
             <motion.button
               variants={fadeUp}
               className="w-full px-6 py-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-all duration-300 shadow-lg hover:shadow-blue-500/25"
@@ -261,12 +243,79 @@ function PnLSection() {
 }
 
 function StatsStrip() {
-  const stats = [
-    { label: "Connected Exchanges", value: "3", icon: <BarChart3 className="w-5 h-5" /> },
-    { label: "Avg. Monthly ROI", value: "8.4%", icon: <TrendingUp className="w-5 h-5" /> },
-    { label: "Active Strategies", value: "5", icon: <Target className="w-5 h-5" /> },
-    { label: "Win Rate", value: "73%", icon: <ShieldCheck className="w-5 h-5" /> }
-  ];
+  const fetcher = (url: string) => fetch(url).then((res) => res.json());
+  
+  // Fetch account data
+  const { data: accountData, error: accountError } = useSWR(
+    '/api/blowfin/account',
+    fetcher,
+    { refreshInterval: 30000 }
+  );
+
+  // Fetch trades data
+  const { data: tradesData, error: tradesError } = useSWR(
+    '/api/blowfin/trades?limit=100',
+    fetcher,
+    { refreshInterval: 60000 }
+  );
+
+  const account = accountData?.data;
+  const trades = tradesData?.data;
+  const isLiveData = accountData?.success && !accountError;
+
+  // Calculate performance metrics from real data
+  const calculateStats = () => {
+    if (!account || !trades) {
+      // Fallback to mock data while loading
+      return [
+        { label: "Connected Exchanges", value: "1", icon: <BarChart3 className="w-5 h-5" /> },
+        { label: "Portfolio Balance", value: "$0", icon: <TrendingUp className="w-5 h-5" /> },
+        { label: "Active Positions", value: "0", icon: <Target className="w-5 h-5" /> },
+        { label: "Equity Usage", value: "0%", icon: <ShieldCheck className="w-5 h-5" /> }
+      ];
+    }
+
+    // Calculate win rate from trades
+    const profitableTrades = trades.trades?.filter((trade: any) => trade.pnl > 0) || [];
+    const totalTrades = trades.trades?.length || 0;
+    const winRate = totalTrades > 0 ? ((profitableTrades.length / totalTrades) * 100).toFixed(0) : "0";
+
+    // Format balance
+    const formatBalance = (balance: number) => {
+      if (balance >= 1000000) return `$${(balance / 1000000).toFixed(1)}M`;
+      if (balance >= 1000) return `$${(balance / 1000).toFixed(1)}K`;
+      return `$${balance.toFixed(0)}`;
+    };
+
+    return [
+      { 
+        label: "Connected Exchanges", 
+        value: "1", 
+        icon: <BarChart3 className="w-5 h-5" />,
+        subtitle: "BloFin Live"
+      },
+      { 
+        label: "Portfolio Balance", 
+        value: formatBalance(account.balance), 
+        icon: <TrendingUp className="w-5 h-5" />,
+        subtitle: `$${account.freeBalance.toFixed(2)} free`
+      },
+      { 
+        label: "Active Positions", 
+        value: account.positions?.length.toString() || "0", 
+        icon: <Target className="w-5 h-5" />,
+        subtitle: `${totalTrades} total trades`
+      },
+      { 
+        label: totalTrades > 0 ? "Win Rate" : "Equity Usage", 
+        value: totalTrades > 0 ? `${winRate}%` : `${account.equityPct?.toFixed(0) || 0}%`, 
+        icon: <ShieldCheck className="w-5 h-5" />,
+        subtitle: totalTrades > 0 ? `${totalTrades} trades` : "risk utilization"
+      }
+    ];
+  };
+
+  const stats = calculateStats();
   
   return (
     <motion.section
@@ -282,6 +331,12 @@ function StatsStrip() {
           className="text-3xl font-bold text-white text-center mb-12"
         >
           Your Trading Performance
+          {isLiveData && (
+            <div className="flex items-center justify-center mt-2">
+              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse mr-2" />
+              <span className="text-sm text-green-400 font-normal">Live Data</span>
+            </div>
+          )}
         </motion.h2>
         
         <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
@@ -297,6 +352,9 @@ function StatsStrip() {
               </div>
               <div className="text-3xl font-bold text-white mb-2">{stat.value}</div>
               <div className="text-sm text-neutral-400">{stat.label}</div>
+              {stat.subtitle && (
+                <div className="text-xs text-neutral-500 mt-1">{stat.subtitle}</div>
+              )}
             </motion.div>
           ))}
         </div>
@@ -807,7 +865,7 @@ function TradeJournalInput({ onSend }: { onSend: (msg: string) => void }) {
                       <div className="space-y-2">
                         <div className="flex justify-between">
                           <span className="text-neutral-400">Position Value:</span>
-                          <span className="text-blue-400 font-mono">${riskReward.totalPositionValue.toLocaleString()}</span>
+                          <span className="text-blue-400 font-mono">${riskReward.totalPositionValue.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-neutral-400">Risk Amount:</span>
@@ -906,11 +964,18 @@ export default function Home() {
       
       <main className="w-full">
         <Hero />
+        <PaperTradingDashboard />
+        <div className="w-full max-w-6xl mx-auto px-6 py-8">
+          <BotControlPanel />
+        </div>
         <PnLSection />
+        <div className="w-full max-w-4xl mx-auto px-6">
+          <CVDWidget />
+        </div>
         <StatsStrip />
         <FeatureGrid openStrategyModal={openStrategyModal} />
         <TradeJournalInput onSend={msg => setJournal(j => [...j, msg])} />
-        <WatchlistPanel />
+        <LiveMarketData />
       </main>
       
       <Footer />

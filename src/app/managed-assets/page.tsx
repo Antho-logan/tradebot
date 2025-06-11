@@ -131,8 +131,13 @@ function MiniPriceChart({ prices }: { prices: number[] }) {
 }
 
 function SlideOver({ asset, onClose }: { asset: any; onClose: () => void }) {
-  // Mock price history for chart
-  const prices = Array.from({ length: 12 }, (_, i) => asset.price * (0.95 + 0.1 * Math.random()));
+  // Mock price history for chart - use fixed data to prevent hydration mismatch
+  const [prices, setPrices] = React.useState<number[]>([]);
+  
+  React.useEffect(() => {
+    // Only generate random data on client side after mount
+    setPrices(Array.from({ length: 12 }, (_, i) => asset.price * (0.95 + 0.1 * Math.random())));
+  }, [asset.price]);
   return (
     <AnimatePresence>
       <motion.div
@@ -151,7 +156,13 @@ function SlideOver({ asset, onClose }: { asset: any; onClose: () => void }) {
         <div className="p-6 flex flex-col gap-4 flex-1 overflow-y-auto">
           <div>
             <div className="text-xs text-neutral-400 mb-1">Mini Price Chart (mock)</div>
-            <MiniPriceChart prices={prices} />
+            {prices.length > 0 ? (
+              <MiniPriceChart prices={prices} />
+            ) : (
+              <div className="w-40 h-12 bg-neutral-800 rounded flex items-center justify-center text-neutral-500 text-xs">
+                Loading...
+              </div>
+            )}
           </div>
           <div>
             <div className="text-xs text-neutral-400 mb-2">Trade History</div>
@@ -170,7 +181,7 @@ function SlideOver({ asset, onClose }: { asset: any; onClose: () => void }) {
                     <td className="py-1 px-2">{t.date}</td>
                     <td className="py-1 px-2">{t.type}</td>
                     <td className="py-1 px-2 text-right">{t.qty}</td>
-                    <td className="py-1 px-2 text-right">${t.price.toLocaleString('en-US')}</td>
+                    <td className="py-1 px-2 text-right">${t.price.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')}</td>
                   </tr>
                 ))}
               </tbody>
@@ -215,8 +226,8 @@ function ManagedAssetsTable({ assets, onRowClick }: { assets: any[]; onRowClick:
                 <td className="py-2 px-3 font-semibold text-white">{a.symbol}</td>
                 <td className="py-2 px-3 text-neutral-300">{a.exchange}</td>
                 <td className="py-2 px-3 text-right text-neutral-200">{a.qty}</td>
-                <td className="py-2 px-3 text-right text-neutral-200">${a.avgBuy.toLocaleString('en-US')}</td>
-                <td className={`py-2 px-3 text-right ${unrealized >= 0 ? 'text-green-400' : 'text-red-400'}`}>{unrealized >= 0 ? '+' : ''}${unrealized.toLocaleString('en-US', { maximumFractionDigits: 2 })}</td>
+                <td className="py-2 px-3 text-right text-neutral-200">${a.avgBuy.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')}</td>
+                <td className={`py-2 px-3 text-right ${unrealized >= 0 ? 'text-green-400' : 'text-red-400'}`}>{unrealized >= 0 ? '+' : ''}${unrealized.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}</td>
                 <td className="py-2 px-3 text-right text-neutral-400">{pct.toFixed(1)}%</td>
               </motion.tr>
             );

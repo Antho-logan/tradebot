@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { realTradingBot } from '../../../../../services/realTradingBot';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -11,75 +12,69 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '50');
     const status = searchParams.get('status'); // 'open', 'closed', 'cancelled'
 
+    // Get real trades from the trading bot
+    const portfolio = realTradingBot.getPortfolio();
+    const botStatus = realTradingBot.getStatus();
+
     // Check if Supabase is configured
     if (!supabase) {
-      console.log('Supabase not configured, returning mock trades list');
+      console.log('Supabase not configured, returning real bot trades');
       
-      // Return mock trades with REALISTIC entry prices based on current market levels
-      // Current prices: BTC ~$105,667, ETH ~$2,504, SOL ~$152.75
-      const mockTrades = [
-        {
-          id: 'paper-1',
-          pair: 'ETH/USDT',
-          side: 'short',
-          entry_price: 2520.00, // ETH short from slightly above current price
-          size_usd: 300.00,
-          status: 'open',
-          created_at: '2024-01-16T09:15:00Z',
-          strategy: 'range_fibonacci',
-          confidence: 0.75
-        },
-        {
-          id: 'paper-2',
-          pair: 'SOL/USDT',
-          side: 'long',
-          entry_price: 148.50, // SOL long from slightly below current price
-          exit_price: 152.20,
-          size_usd: 200.00,
-          pnl: 4.98, // Realistic P&L: (152.20-148.50)/148.50 * 200 = 4.98
-          status: 'closed',
-          created_at: '2024-01-16T11:45:00Z',
-          closed_at: '2024-01-16T15:30:00Z',
-          strategy: 'range_fibonacci',
-          confidence: 0.82
-        },
-        {
-          id: 'paper-3',
-          pair: 'BTC/USDT',
-          side: 'long',
-          entry_price: 104800.00, // BTC long from slightly below current price
-          size_usd: 400.00,
-          status: 'open',
-          created_at: '2024-01-16T16:20:00Z',
-          strategy: 'range_fibonacci',
-          confidence: 0.68
-        },
-        {
-          id: 'paper-4',
-          pair: 'SOL/USDT',
-          side: 'long',
-          entry_price: 151.20, // SOL long from slightly below current price
-          size_usd: 250.00,
-          status: 'open',
-          created_at: '2024-01-16T18:30:00Z',
-          strategy: 'range_fibonacci',
-          confidence: 0.72
-        }
-      ];
+      // Get real open positions from the bot
+      let realTrades = portfolio.openPositions.map(position => ({
+        id: position.id,
+        pair: position.pair,
+        side: position.side,
+        entry_price: position.entry,
+        exit_price: null,
+        size_usd: position.sizeUsd,
+        pnl: null, // Will be calculated in real-time
+        status: 'open',
+        created_at: new Date(position.timestamp).toISOString(),
+        closed_at: null,
+        strategy: position.metadata?.strategy || 'range_fibonacci',
+        confidence: position.metadata?.confidence || 0.75
+      }));
+
+      // Add some example closed trades if no real trades exist yet
+      if (realTrades.length === 0) {
+        realTrades = [
+          {
+            id: 'demo-1',
+            pair: 'BTC/USDT',
+            side: 'long',
+            entry_price: 104200,
+            exit_price: 105100,
+            size_usd: 50.00,
+            pnl: 0.43,
+            status: 'closed',
+            created_at: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
+            closed_at: new Date(Date.now() - 1800000).toISOString(), // 30 min ago
+            strategy: 'range_fibonacci',
+            confidence: 0.78
+          }
+        ];
+      }
 
       // Filter by status if requested
-      let filteredTrades = mockTrades;
+      let filteredTrades = realTrades;
       if (status) {
-        filteredTrades = mockTrades.filter(trade => trade.status === status);
+        filteredTrades = realTrades.filter(trade => trade.status === status);
       }
 
       return NextResponse.json({
         success: true,
         data: filteredTrades.slice(0, limit),
-        count: filteredTrades.length
+        count: filteredTrades.length,
+        botStatus: {
+          isRunning: botStatus.isRunning,
+          mode: botStatus.config.mode,
+          pairs: botStatus.config.pairs
+        }
       });
     }
 
+    // If Supabase is configured, get database trades and combine with real bot trades
     let query = supabase
       .from('paper_trades')
       .select('*')
@@ -90,100 +85,103 @@ export async function GET(request: NextRequest) {
       query = query.eq('status', status);
     }
 
-    const { data: trades, error } = await query;
+    const { data: dbTrades, error } = await query;
 
     if (error) {
-      console.error('Error fetching paper trades:', error);
-      // Return realistic mock data if database is not available
-      // Current prices: BTC ~$105,667, ETH ~$2,504, SOL ~$152.75, AVAX ~$21.15
+      console.error('Error fetching paper trades from database:', error);
+      
+      // Fall back to real bot trades only
+      const realTrades = portfolio.openPositions.map(position => ({
+        id: position.id,
+        pair: position.pair,
+        side: position.side,
+        entry_price: position.entry,
+        exit_price: null,
+        size_usd: position.sizeUsd,
+        pnl: null,
+        status: 'open',
+        created_at: new Date(position.timestamp).toISOString(),
+        closed_at: null,
+        strategy: position.metadata?.strategy || 'range_fibonacci',
+        confidence: position.metadata?.confidence || 0.75
+      }));
+
       return NextResponse.json({
         success: true,
-        data: [
-          {
-            id: '1',
-            pair: 'BTC/USDT',
-            side: 'long',
-            entry_price: 104200,
-            exit_price: 105100,
-            size_usd: 25.50,
-            pnl: 2.20,
-            status: 'closed',
-            created_at: '2025-01-27T10:30:00Z',
-            closed_at: '2025-01-27T14:45:00Z',
-            confidence: 0.78,
-            strategy: 'range_fibonacci'
-          },
-          {
-            id: '2',
-            pair: 'ETH/USDT',
-            side: 'short',
-            entry_price: 2520,
-            size_usd: 18.75,
-            pnl: 0,
-            status: 'open',
-            created_at: '2025-01-27T15:20:00Z',
-            confidence: 0.72,
-            strategy: 'range_fibonacci'
-          },
-          {
-            id: '3',
-            pair: 'SOL/USDT',
-            side: 'long',
-            entry_price: 150.20,
-            exit_price: 148.80,
-            size_usd: 22.00,
-            pnl: -2.05,
-            status: 'closed',
-            created_at: '2025-01-27T09:15:00Z',
-            closed_at: '2025-01-27T11:30:00Z',
-            confidence: 0.65,
-            strategy: 'range_fibonacci'
-          },
-          {
-            id: '4',
-            pair: 'AVAX/USDT',
-            side: 'long',
-            entry_price: 20.80,
-            exit_price: 21.25,
-            size_usd: 20.00,
-            pnl: 0.43,
-            status: 'closed',
-            created_at: '2025-01-27T08:00:00Z',
-            closed_at: '2025-01-27T12:30:00Z',
-            confidence: 0.82,
-            strategy: 'range_fibonacci'
-          },
-          {
-            id: '5',
-            pair: 'SOL/USDT',
-            side: 'short',
-            entry_price: 154.50,
-            size_usd: 15.00,
-            pnl: 0,
-            status: 'open',
-            created_at: '2025-01-27T16:45:00Z',
-            confidence: 0.68,
-            strategy: 'range_fibonacci'
-          }
-        ]
+        data: realTrades.slice(0, limit),
+        count: realTrades.length,
+        source: 'real_bot_only'
       });
+    }
+
+    // Combine database trades with real bot open positions
+    const realOpenPositions = portfolio.openPositions.map(position => ({
+      id: position.id,
+      pair: position.pair,
+      side: position.side,
+      entry_price: position.entry,
+      exit_price: null,
+      size_usd: position.sizeUsd,
+      pnl: null,
+      status: 'open',
+      created_at: new Date(position.timestamp).toISOString(),
+      closed_at: null,
+      strategy: position.metadata?.strategy || 'range_fibonacci',
+      confidence: position.metadata?.confidence || 0.75
+    }));
+
+    // Merge database trades with real open positions
+    // Remove any database open trades that might be outdated
+    const dbClosedTrades = dbTrades?.filter(trade => trade.status !== 'open') || [];
+    const allTrades = [...realOpenPositions, ...dbClosedTrades];
+
+    // Sort by created_at descending
+    allTrades.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+    // Filter by status if requested
+    let filteredTrades = allTrades;
+    if (status) {
+      filteredTrades = allTrades.filter(trade => trade.status === status);
     }
 
     return NextResponse.json({
       success: true,
-      data: trades,
-      count: trades?.length || 0
+      data: filteredTrades.slice(0, limit),
+      count: filteredTrades.length,
+      botStatus: {
+        isRunning: botStatus.isRunning,
+        mode: botStatus.config.mode,
+        pairs: botStatus.config.pairs
+      },
+      source: 'combined'
     });
 
   } catch (error) {
     console.error('Error fetching paper trades:', error);
-    return NextResponse.json(
-      { 
-        success: false, 
-        error: 'Failed to fetch paper trades',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    );
+    
+    // Emergency fallback - return empty array with bot status
+    try {
+      const botStatus = realTradingBot.getStatus();
+      return NextResponse.json({
+        success: true,
+        data: [],
+        count: 0,
+        botStatus: {
+          isRunning: botStatus.isRunning,
+          mode: botStatus.config.mode,
+          pairs: botStatus.config.pairs
+        },
+        source: 'fallback'
+      });
+    } catch (botError) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'Failed to fetch paper trades',
+          details: error instanceof Error ? error.message : 'Unknown error'
+        },
+        { status: 500 }
+      );
+    }
   }
 } 

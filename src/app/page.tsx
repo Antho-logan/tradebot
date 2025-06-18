@@ -1,8 +1,8 @@
 'use client';
-import React from "react";
-import { motion } from "framer-motion";
+import React, { useState } from 'react';
+import { motion } from 'framer-motion';
 import {
-  BarChart3, ShieldCheck, Zap, BookOpen, Radar, Activity, Github, Bell, Paperclip, Send, TrendingUp, TrendingDown, DollarSign, Target, Brain
+  BarChart3, ShieldCheck, Zap, BookOpen, Radar, Activity, Github, Bell, Paperclip, Send, TrendingUp, TrendingDown, DollarSign, Target, Brain, Bot
 } from "lucide-react";
 import { useStrategyBuilderModal } from './StrategyBuilderModal';
 import Image from "next/image";
@@ -15,6 +15,9 @@ import PaperTradingDashboard from "../components/PaperTradingDashboard";
 import BotControlPanel from "../components/BotControlPanel";
 import Link from "next/link";
 import useSWR from 'swr';
+import BloFinDashboard from '@/components/BloFinDashboard';
+import CVDChart from '@/components/CVDChart';
+import RealTradingBotControl from '@/components/RealTradingBotControl';
 
 const fadeUp = {
   hidden: { opacity: 0, y: 32 },
@@ -957,6 +960,15 @@ export default function Home() {
 
   const [strategyModal, openStrategyModal] = useStrategyBuilderModal();
   const [journal, setJournal] = React.useState<string[]>([]);
+  const [activeTab, setActiveTab] = React.useState('paper');
+
+  const tabs = [
+    { id: 'paper', label: 'Paper Trading', icon: TrendingUp },
+    { id: 'blofin', label: 'BloFin Live', icon: BarChart3 },
+    { id: 'cvd', label: 'CVD Analysis', icon: Activity },
+    { id: 'bot', label: 'Bot Control', icon: Bot },
+    { id: 'real-bot', label: 'Real Strategy Bot', icon: Zap }
+  ];
 
   return (
     <div className="bg-neutral-950 min-h-screen font-sans main-container">
@@ -968,6 +980,35 @@ export default function Home() {
         <div className="w-full max-w-6xl mx-auto px-6 py-8">
           <BotControlPanel />
         </div>
+        
+        {/* Real Strategy Trading Bot Section */}
+        <motion.section
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true }}
+          variants={staggerContainer}
+          className="w-full py-16 bg-gradient-to-b from-neutral-900 to-neutral-950"
+        >
+          <div className="max-w-6xl mx-auto px-6">
+            <motion.div variants={fadeUp} className="text-center mb-12">
+              <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-500/10 border border-blue-500/20 rounded-full text-blue-400 text-sm font-medium mb-6">
+                <Zap className="w-4 h-4" />
+                Real Strategy Execution
+              </div>
+              <h2 className="text-4xl font-bold text-white mb-4">
+                Automated Strategy Trading Bot
+              </h2>
+              <p className="text-xl text-neutral-300 max-w-3xl mx-auto">
+                Run your actual Range Fibonacci strategy with real market data. 
+                The bot analyzes FVG, order blocks, and CVD to generate signals and execute trades automatically.
+              </p>
+            </motion.div>
+            
+            <motion.div variants={fadeUp}>
+              <RealTradingBotControl />
+            </motion.div>
+          </div>
+        </motion.section>
         <PnLSection />
         <div className="w-full max-w-4xl mx-auto px-6">
           <CVDWidget />

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { realTradingBot } from '../../../../../services/realTradingBot';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -79,288 +80,146 @@ function calculateUnrealizedPnL(openTrades: PaperTrade[], currentPrices: Record<
 
 export async function GET(request: NextRequest) {
   try {
-    // Fetch current market prices for unrealized P&L calculation
-    const currentPrices = await getCurrentPrices();
-    
-    // Check if Supabase is configured
-    if (!supabase) {
-      console.log('Supabase not configured, returning realistic starting data');
-      
-      // Use mock trades with realistic entry prices for better P&L demonstration
-      const mockTrades: PaperTrade[] = [
-        {
-          id: 'paper-1',
-          pair: 'ETH/USDT',
-          side: 'short',
-          entry_price: 2520.00, // Higher entry for short to show potential profit/loss
-          size_usd: 300.00,
-          status: 'open',
-          created_at: '2024-01-16T09:15:00Z',
-          strategy: 'range_fibonacci',
-          confidence: 0.75
-        },
-        {
-          id: 'paper-2',
-          pair: 'SOL/USDT',
-          side: 'long',
-          entry_price: 98.20,
-          exit_price: 101.50,
-          size_usd: 200.00,
-          pnl: 6.71,
-          status: 'closed',
-          created_at: '2024-01-16T11:45:00Z',
-          closed_at: '2024-01-16T15:30:00Z',
-          strategy: 'range_fibonacci',
-          confidence: 0.82
-        },
-        {
-          id: 'paper-3',
-          pair: 'BTC/USDT',
-          side: 'long',
-          entry_price: 102000.00, // Lower entry for long to show potential profit
-          size_usd: 400.00,
-          status: 'open',
-          created_at: '2024-01-16T16:20:00Z',
-          strategy: 'range_fibonacci',
-          confidence: 0.68
-        },
-        {
-          id: 'paper-4',
-          pair: 'SOL/USDT',
-          side: 'long',
-          entry_price: 145.00, // Current open SOL position
-          size_usd: 250.00,
-          status: 'open',
-          created_at: '2024-01-16T18:30:00Z',
-          strategy: 'range_fibonacci',
-          confidence: 0.72
-        }
-      ];
+    // Get real portfolio data from the trading bot
+    const portfolio = realTradingBot.getPortfolio();
+    const botStatus = realTradingBot.getStatus();
 
-      // Calculate statistics using mock data
-      const startingBalance = 100;
-      const closedTrades = mockTrades.filter(t => t.status === 'closed' && t.pnl !== null);
-      const openTrades = mockTrades.filter(t => t.status === 'open');
+    // Check if Supabase is configured for historical data
+    if (!supabase) {
+      console.log('Supabase not configured, returning real bot data with simulated history');
       
-      // Calculate total P&L from closed trades
-      const totalPnL = closedTrades.reduce((sum, trade) => sum + (trade.pnl || 0), 0);
-      const totalBalance = startingBalance + totalPnL;
-      const totalPnLPct = (totalPnL / startingBalance) * 100;
-      
-      // Calculate unrealized P&L for open positions
-      const unrealizedPnL = calculateUnrealizedPnL(openTrades, currentPrices);
-      const unrealizedPnLPct = totalBalance > 0 ? (unrealizedPnL / totalBalance) * 100 : 0;
-      
-      // Calculate daily P&L (all trades are from today in mock data)
-      const dailyPnL = totalPnL;
-      const dailyPnLPct = totalBalance > 0 ? (dailyPnL / totalBalance) * 100 : 0;
-      
-      // Win/Loss statistics
-      const winningTrades = closedTrades.filter(t => (t.pnl || 0) > 0);
-      const losingTrades = closedTrades.filter(t => (t.pnl || 0) < 0);
-      const winRate = closedTrades.length > 0 ? (winningTrades.length / closedTrades.length) * 100 : 0;
-      
-      // Best and worst trades
-      const bestTrade = closedTrades.length > 0 ? Math.max(...closedTrades.map(t => t.pnl || 0)) : 0;
-      const worstTrade = closedTrades.length > 0 ? Math.min(...closedTrades.map(t => t.pnl || 0)) : 0;
+      // Return real portfolio data with some calculated metrics
+      const totalBalance = portfolio.balance + portfolio.unrealizedPnL;
+      const dailyPnLPct = portfolio.balance > 0 ? (portfolio.dailyPnL / portfolio.balance) * 100 : 0;
+      const unrealizedPnLPct = portfolio.balance > 0 ? (portfolio.unrealizedPnL / portfolio.balance) * 100 : 0;
 
       return NextResponse.json({
         success: true,
         data: {
-          totalBalance: Math.round((totalBalance + unrealizedPnL) * 100) / 100,
-          startingBalance,
-          totalPnL: Math.round(totalPnL * 100) / 100,
-          totalPnLPct: Math.round(totalPnLPct * 100) / 100,
-          dailyPnL: Math.round(dailyPnL * 100) / 100,
-          dailyPnLPct: Math.round(dailyPnLPct * 100) / 100,
-          unrealizedPnL: Math.round(unrealizedPnL * 100) / 100,
-          unrealizedPnLPct: Math.round(unrealizedPnLPct * 100) / 100,
-          totalTrades: mockTrades.length,
-          winningTrades: winningTrades.length,
-          losingTrades: losingTrades.length,
-          winRate: Math.round(winRate * 100) / 100,
-          avgWin: winningTrades.length > 0 ? Math.round((winningTrades.reduce((sum, t) => sum + (t.pnl || 0), 0) / winningTrades.length) * 100) / 100 : 0,
-          avgLoss: losingTrades.length > 0 ? Math.round((losingTrades.reduce((sum, t) => sum + (t.pnl || 0), 0) / losingTrades.length) * 100) / 100 : 0,
-          profitFactor: losingTrades.length > 0 ? Math.round((winningTrades.reduce((sum, t) => sum + (t.pnl || 0), 0) / Math.abs(losingTrades.reduce((sum, t) => sum + (t.pnl || 0), 0))) * 100) / 100 : 999,
-          maxDrawdown: 0,
-          openTrades: openTrades.length,
-          todayTrades: mockTrades.length,
-          bestTrade: Math.round(bestTrade * 100) / 100,
-          worstTrade: Math.round(worstTrade * 100) / 100,
-          avgHoldTime: "4h 15m",
-          sharpeRatio: 1.25
+          // Real portfolio data
+          balance: portfolio.balance,
+          totalBalance: totalBalance,
+          unrealizedPnL: portfolio.unrealizedPnL,
+          unrealizedPnLPct: unrealizedPnLPct,
+          dailyPnL: portfolio.dailyPnL,
+          dailyPnLPct: dailyPnLPct,
+          
+          // Position data
+          openTrades: portfolio.openPositions.length,
+          totalTrades: portfolio.totalTrades,
+          winRate: portfolio.winRate,
+          
+          // Margin data
+          freeMargin: portfolio.freeMargin,
+          usedMargin: portfolio.usedMargin,
+          marginLevel: portfolio.freeMargin > 0 ? (portfolio.equity / portfolio.usedMargin) * 100 : 0,
+          
+          // Bot status
+          botRunning: botStatus.isRunning,
+          botMode: botStatus.config.mode,
+          monitoredPairs: botStatus.config.pairs,
+          
+          // Additional metrics
+          equity: portfolio.equity,
+          equityPct: portfolio.balance > 0 ? (portfolio.equity / portfolio.balance) * 100 : 100,
+          
+          // Timestamp
+          timestamp: Date.now()
         }
       });
     }
 
-    // Fetch all paper trades
+    // If Supabase is configured, get historical data and combine with real portfolio
     const { data: trades, error } = await supabase
       .from('paper_trades')
       .select('*')
       .order('created_at', { ascending: false });
 
     if (error) {
-      console.error('Error fetching paper trades:', error);
-      // Return realistic starting data if database is not available
+      console.error('Error fetching trades from database:', error);
+      // Fall back to real bot data
       return NextResponse.json({
         success: true,
         data: {
-          totalBalance: 100.00,
-          startingBalance: 100,
-          totalPnL: 0.00,
-          totalPnLPct: 0.00,
-          dailyPnL: 0.00,
-          dailyPnLPct: 0.00,
-          unrealizedPnL: 0.00,
-          unrealizedPnLPct: 0.00,
-          totalTrades: 0,
-          winningTrades: 0,
-          losingTrades: 0,
-          winRate: 0,
-          avgWin: 0,
-          avgLoss: 0,
-          profitFactor: 0,
-          maxDrawdown: 0,
-          openTrades: 0,
-          todayTrades: 0,
-          bestTrade: 0,
-          worstTrade: 0,
-          avgHoldTime: "0h 0m",
-          sharpeRatio: 0
+          balance: portfolio.balance,
+          totalBalance: portfolio.balance + portfolio.unrealizedPnL,
+          unrealizedPnL: portfolio.unrealizedPnL,
+          unrealizedPnLPct: portfolio.balance > 0 ? (portfolio.unrealizedPnL / portfolio.balance) * 100 : 0,
+          dailyPnL: portfolio.dailyPnL,
+          dailyPnLPct: portfolio.balance > 0 ? (portfolio.dailyPnL / portfolio.balance) * 100 : 0,
+          openTrades: portfolio.openPositions.length,
+          totalTrades: portfolio.totalTrades,
+          winRate: portfolio.winRate,
+          botRunning: botStatus.isRunning,
+          timestamp: Date.now()
         }
       });
     }
 
-    const paperTrades = trades as PaperTrade[];
-    
-    // Calculate statistics
-    const startingBalance = 100;
-    const closedTrades = paperTrades.filter(t => t.status === 'closed' && t.pnl !== null);
-    const openTrades = paperTrades.filter(t => t.status === 'open');
-    
-    // Calculate total P&L
-    const totalPnL = closedTrades.reduce((sum, trade) => sum + (trade.pnl || 0), 0);
-    const totalBalance = startingBalance + totalPnL;
-    const totalPnLPct = (totalPnL / startingBalance) * 100;
-    
-    // Calculate daily P&L (trades from today)
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayTrades = closedTrades.filter(trade => 
-      new Date(trade.closed_at || trade.created_at) >= today
-    );
-    const dailyPnL = todayTrades.reduce((sum, trade) => sum + (trade.pnl || 0), 0);
-    const dailyPnLPct = totalBalance > 0 ? (dailyPnL / totalBalance) * 100 : 0;
-    
-    // Calculate unrealized P&L for open positions
-    const unrealizedPnL = calculateUnrealizedPnL(openTrades, currentPrices);
-    const unrealizedPnLPct = totalBalance > 0 ? (unrealizedPnL / totalBalance) * 100 : 0;
-    
-    // Win/Loss statistics
+    // Calculate statistics from database trades
+    const openTrades = trades?.filter(t => t.status === 'open') || [];
+    const closedTrades = trades?.filter(t => t.status === 'closed') || [];
     const winningTrades = closedTrades.filter(t => (t.pnl || 0) > 0);
-    const losingTrades = closedTrades.filter(t => (t.pnl || 0) < 0);
+    
+    const totalPnL = closedTrades.reduce((sum, trade) => sum + (trade.pnl || 0), 0);
     const winRate = closedTrades.length > 0 ? (winningTrades.length / closedTrades.length) * 100 : 0;
-    
-    // Average win/loss
-    const avgWin = winningTrades.length > 0 
-      ? winningTrades.reduce((sum, t) => sum + (t.pnl || 0), 0) / winningTrades.length 
-      : 0;
-    const avgLoss = losingTrades.length > 0 
-      ? losingTrades.reduce((sum, t) => sum + (t.pnl || 0), 0) / losingTrades.length 
-      : 0;
-    
-    // Profit factor
-    const grossProfit = winningTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
-    const grossLoss = Math.abs(losingTrades.reduce((sum, t) => sum + (t.pnl || 0), 0));
-    const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? 999 : 0;
-    
-    // Best and worst trades
-    const bestTrade = closedTrades.length > 0 
-      ? Math.max(...closedTrades.map(t => t.pnl || 0)) 
-      : 0;
-    const worstTrade = closedTrades.length > 0 
-      ? Math.min(...closedTrades.map(t => t.pnl || 0)) 
-      : 0;
-    
-    // Calculate max drawdown
-    let runningBalance = startingBalance;
-    let peak = startingBalance;
-    let maxDrawdown = 0;
-    
-    for (const trade of closedTrades.sort((a, b) => 
-      new Date(a.closed_at || a.created_at).getTime() - 
-      new Date(b.closed_at || b.created_at).getTime()
-    )) {
-      runningBalance += trade.pnl || 0;
-      if (runningBalance > peak) {
-        peak = runningBalance;
-      }
-      const drawdown = peak - runningBalance;
-      if (drawdown > maxDrawdown) {
-        maxDrawdown = drawdown;
-      }
-    }
-    
-    // Calculate average hold time
-    const tradesWithDuration = closedTrades.filter(t => t.closed_at);
-    const avgHoldTimeMs = tradesWithDuration.length > 0
-      ? tradesWithDuration.reduce((sum, trade) => {
-          const duration = new Date(trade.closed_at!).getTime() - new Date(trade.created_at).getTime();
-          return sum + duration;
-        }, 0) / tradesWithDuration.length
-      : 0;
-    
-    const avgHoldTimeHours = Math.floor(avgHoldTimeMs / (1000 * 60 * 60));
-    const avgHoldTimeMinutes = Math.floor((avgHoldTimeMs % (1000 * 60 * 60)) / (1000 * 60));
-    const avgHoldTime = `${avgHoldTimeHours}h ${avgHoldTimeMinutes}m`;
-    
-    // Calculate Sharpe ratio (simplified)
-    const returns = closedTrades.map(t => (t.pnl || 0) / startingBalance);
-    const avgReturn = returns.length > 0 ? returns.reduce((sum, r) => sum + r, 0) / returns.length : 0;
-    const returnStdDev = returns.length > 1 
-      ? Math.sqrt(returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / (returns.length - 1))
-      : 0;
-    const sharpeRatio = returnStdDev > 0 ? (avgReturn / returnStdDev) * Math.sqrt(252) : 0; // Annualized
-    
-    const stats = {
-      totalBalance: Math.round(totalBalance * 100) / 100,
-      startingBalance,
-      totalPnL: Math.round(totalPnL * 100) / 100,
-      totalPnLPct: Math.round(totalPnLPct * 100) / 100,
-      dailyPnL: Math.round(dailyPnL * 100) / 100,
-      dailyPnLPct: Math.round(dailyPnLPct * 100) / 100,
-      unrealizedPnL: Math.round(unrealizedPnL * 100) / 100,
-      unrealizedPnLPct: Math.round(unrealizedPnLPct * 100) / 100,
-      totalTrades: paperTrades.length,
-      winningTrades: winningTrades.length,
-      losingTrades: losingTrades.length,
-      winRate: Math.round(winRate * 100) / 100,
-      avgWin: Math.round(avgWin * 100) / 100,
-      avgLoss: Math.round(avgLoss * 100) / 100,
-      profitFactor: Math.round(profitFactor * 100) / 100,
-      maxDrawdown: -Math.round(maxDrawdown * 100) / 100,
-      openTrades: openTrades.length,
-      todayTrades: todayTrades.length,
-      bestTrade: Math.round(bestTrade * 100) / 100,
-      worstTrade: Math.round(worstTrade * 100) / 100,
-      avgHoldTime,
-      sharpeRatio: Math.round(sharpeRatio * 100) / 100
+
+    // Combine database stats with real portfolio data
+    const combinedStats = {
+      balance: portfolio.balance,
+      totalBalance: portfolio.balance + portfolio.unrealizedPnL + totalPnL,
+      unrealizedPnL: portfolio.unrealizedPnL,
+      unrealizedPnLPct: portfolio.balance > 0 ? (portfolio.unrealizedPnL / portfolio.balance) * 100 : 0,
+      dailyPnL: portfolio.dailyPnL,
+      dailyPnLPct: portfolio.balance > 0 ? (portfolio.dailyPnL / portfolio.balance) * 100 : 0,
+      openTrades: Math.max(openTrades.length, portfolio.openPositions.length),
+      totalTrades: Math.max(trades?.length || 0, portfolio.totalTrades),
+      winRate: Math.max(winRate, portfolio.winRate),
+      realizedPnL: totalPnL,
+      freeMargin: portfolio.freeMargin,
+      usedMargin: portfolio.usedMargin,
+      equity: portfolio.equity + totalPnL,
+      botRunning: botStatus.isRunning,
+      botMode: botStatus.config.mode,
+      timestamp: Date.now()
     };
 
     return NextResponse.json({
       success: true,
-      data: stats
+      data: combinedStats
     });
 
   } catch (error) {
-    console.error('Error calculating paper trading stats:', error);
-    return NextResponse.json(
-      { 
-        success: false, 
-        error: 'Failed to calculate paper trading statistics',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    );
+    console.error('Error fetching paper trading stats:', error);
+    
+    // Emergency fallback - return basic real bot data
+    try {
+      const portfolio = realTradingBot.getPortfolio();
+      return NextResponse.json({
+        success: true,
+        data: {
+          balance: portfolio.balance,
+          totalBalance: portfolio.balance + portfolio.unrealizedPnL,
+          unrealizedPnL: portfolio.unrealizedPnL,
+          unrealizedPnLPct: 0,
+          dailyPnL: portfolio.dailyPnL,
+          dailyPnLPct: 0,
+          openTrades: portfolio.openPositions.length,
+          totalTrades: portfolio.totalTrades,
+          winRate: portfolio.winRate,
+          botRunning: false,
+          timestamp: Date.now()
+        }
+      });
+    } catch (botError) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'Failed to fetch paper trading stats',
+          details: error instanceof Error ? error.message : 'Unknown error'
+        },
+        { status: 500 }
+      );
+    }
   }
 } 

@@ -185,41 +185,45 @@ export default function PaperTradingDashboard() {
   }, 0);
 
   const formatCurrency = (amount: number) => {
+    const safeAmount = amount || 0;
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
-    }).format(amount);
+    }).format(safeAmount);
   };
 
   const formatPrice = (price: number) => {
-    if (price >= 1000) {
+    const safePrice = price || 0;
+    if (safePrice >= 1000) {
       return new Intl.NumberFormat('en-US', {
         style: 'currency',
         currency: 'USD',
         minimumFractionDigits: 0,
         maximumFractionDigits: 0
-      }).format(price);
+      }).format(safePrice);
     }
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
       minimumFractionDigits: 2,
       maximumFractionDigits: 4
-    }).format(price);
+    }).format(safePrice);
   };
 
   const formatQuantity = (quantity: number) => {
-    if (quantity >= 1) {
-      return quantity.toFixed(4);
+    const safeQuantity = quantity || 0;
+    if (safeQuantity >= 1) {
+      return safeQuantity.toFixed(4);
     }
-    return quantity.toFixed(8);
+    return safeQuantity.toFixed(8);
   };
 
   const formatPercentage = (pct: number) => {
-    const sign = pct >= 0 ? '+' : '';
-    return `${sign}${pct.toFixed(2)}%`;
+    const safePct = pct || 0;
+    const sign = safePct >= 0 ? '+' : '';
+    return `${sign}${safePct.toFixed(2)}%`;
   };
 
   const getStatusIcon = (status: string) => {
@@ -236,8 +240,9 @@ export default function PaperTradingDashboard() {
   };
 
   const getPerformanceColor = (value: number) => {
-    if (value > 0) return 'text-emerald-400';
-    if (value < 0) return 'text-red-400';
+    const safeValue = value || 0;
+    if (safeValue > 0) return 'text-emerald-400';
+    if (safeValue < 0) return 'text-red-400';
     return 'text-neutral-400';
   };
 
@@ -337,7 +342,7 @@ export default function PaperTradingDashboard() {
               <span className="text-neutral-300 font-medium">Win Rate</span>
             </div>
             <div className="text-3xl font-bold text-white mb-2">
-              {stats.winRate.toFixed(1)}%
+              {(stats.winRate || 0).toFixed(1)}%
             </div>
             <div className="text-sm text-neutral-400">
               {stats.winningTrades}W / {stats.losingTrades}L
@@ -564,11 +569,11 @@ export default function PaperTradingDashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               <div className="bg-neutral-800/50 border border-neutral-700 rounded-xl p-4">
                 <div className="text-neutral-400 text-sm mb-1">Profit Factor</div>
-                <div className="text-xl font-bold text-white">{stats.profitFactor.toFixed(2)}</div>
+                <div className="text-xl font-bold text-white">{(stats.profitFactor || 0).toFixed(2)}</div>
               </div>
               <div className="bg-neutral-800/50 border border-neutral-700 rounded-xl p-4">
                 <div className="text-neutral-400 text-sm mb-1">Sharpe Ratio</div>
-                <div className="text-xl font-bold text-white">{stats.sharpeRatio.toFixed(2)}</div>
+                <div className="text-xl font-bold text-white">{(stats.sharpeRatio || 0).toFixed(2)}</div>
               </div>
               <div className="bg-neutral-800/50 border border-neutral-700 rounded-xl p-4">
                 <div className="text-neutral-400 text-sm mb-1">Max Drawdown</div>

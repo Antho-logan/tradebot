@@ -38,22 +38,8 @@ export async function GET(request: NextRequest) {
 
       // Add some example closed trades if no real trades exist yet
       if (realTrades.length === 0) {
-        realTrades = [
-          {
-            id: 'demo-1',
-            pair: 'BTC/USDT',
-            side: 'long',
-            entry_price: 104200,
-            exit_price: 105100,
-            size_usd: 50.00,
-            pnl: 0.43,
-            status: 'closed',
-            created_at: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
-            closed_at: new Date(Date.now() - 1800000).toISOString(), // 30 min ago
-            strategy: 'range_fibonacci',
-            confidence: 0.78
-          }
-        ];
+        // Don't add fake demo trades - let the system work with real data
+        realTrades = [];
       }
 
       // Filter by status if requested

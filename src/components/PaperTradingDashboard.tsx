@@ -78,25 +78,52 @@ const fadeUp = {
 
 export default function PaperTradingDashboard() {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [showExecuteModal, setShowExecuteModal] = useState(false);
+  const [priceAnimations, setPriceAnimations] = useState<Record<string, boolean>>({});
+  const [autoTradingEnabled, setAutoTradingEnabled] = useState(false);
+  const [isStartingAutoTrade, setIsStartingAutoTrade] = useState(false);
   
-  // Fetch paper trading data
+  // Fetch paper trading data with faster refresh for better UX
   const { data: statsData, error: statsError } = useSWR(
     '/api/paper-trading/stats',
     fetcher,
-    { refreshInterval: 5000 }
+    { 
+      refreshInterval: 3000, // Faster refresh for real-time feel
+      revalidateOnFocus: true,
+      dedupingInterval: 1000
+    }
   );
 
   const { data: tradesData, error: tradesError } = useSWR(
     '/api/paper-trading/trades?limit=10',
     fetcher,
-    { refreshInterval: 10000 }
+    { 
+      refreshInterval: 5000, // Faster trade updates
+      revalidateOnFocus: true,
+      dedupingInterval: 2000
+    }
   );
 
-  // Fetch current market prices for real-time P&L
+  // Fetch current market prices for real-time P&L with higher frequency
   const { data: pricesData } = useSWR(
     '/api/market/prices',
     fetcher,
-    { refreshInterval: 10000 }
+    { 
+      refreshInterval: 5000, // More frequent price updates
+      revalidateOnFocus: true,
+      dedupingInterval: 2000
+    }
+  );
+
+  // Fetch auto-trading status
+  const { data: autoTradingData } = useSWR(
+    '/api/paper-trading/auto-trade',
+    fetcher,
+    { 
+      refreshInterval: 10000,
+      revalidateOnFocus: true
+    }
   );
 
   // Default starting data for paper trading
@@ -128,6 +155,44 @@ export default function PaperTradingDashboard() {
   const stats = statsData?.data || defaultStats;
   const trades = tradesData?.data || [];
   const prices: MarketPrice[] = pricesData?.data || [];
+  const autoTradingStatus = autoTradingData?.data;
+
+  // Update auto-trading state from API
+  useEffect(() => {
+    if (autoTradingStatus) {
+      setAutoTradingEnabled(autoTradingStatus.isRunning);
+    }
+  }, [autoTradingStatus]);
+
+  // Toggle auto-trading
+  const toggleAutoTrading = async () => {
+    setIsStartingAutoTrade(true);
+    try {
+      const action = autoTradingEnabled ? 'stop' : 'start';
+      const response = await fetch('/api/paper-trading/auto-trade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          config: {
+            pairs: ['BTC/USDT:USDT', 'ETH/USDT:USDT', 'SOL/USDT:USDT', 'ADA/USDT:USDT', 'LINK/USDT:USDT', 'AVAX/USDT:USDT'],
+            maxPositions: 5,
+            riskPerTrade: 0.01, // 1% of $100 = $1 per trade
+            minConfidence: 0.50 // Lowered to get more trades
+          }
+        })
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        setAutoTradingEnabled(!autoTradingEnabled);
+      }
+    } catch (error) {
+      console.error('Error toggling auto-trading:', error);
+    } finally {
+      setIsStartingAutoTrade(false);
+    }
+  };
 
   // Get current price for a trading pair
   const getCurrentPrice = (pair: string): number => {
@@ -183,6 +248,50 @@ export default function PaperTradingDashboard() {
     const { pnl } = calculateRealTimePnL(trade);
     return total + pnl;
   }, 0);
+
+  // Handle price change animations
+  useEffect(() => {
+    if (prices.length > 0) {
+      prices.forEach(price => {
+        setPriceAnimations(prev => ({ ...prev, [price.symbol]: true }));
+        setTimeout(() => {
+          setPriceAnimations(prev => ({ ...prev, [price.symbol]: false }));
+        }, 1000);
+      });
+    }
+  }, [prices]);
+
+  // Execute paper trade function
+  const executePaperTrade = async (pair: string, side: 'long' | 'short', sizeUsd: number) => {
+    setIsExecuting(true);
+    try {
+      const response = await fetch('/api/paper-trading/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pair,
+          mode: 'manual',
+          side,
+          sizeUsd
+        })
+      });
+
+      const result = await response.json();
+      
+      if (result.success) {
+        // Trigger a refresh of trades data
+        tradesData && typeof tradesData.mutate === 'function' && tradesData.mutate();
+        statsData && typeof statsData.mutate === 'function' && statsData.mutate();
+        setShowExecuteModal(false);
+      } else {
+        console.error('Trade execution failed:', result.error);
+      }
+    } catch (error) {
+      console.error('Error executing trade:', error);
+    } finally {
+      setIsExecuting(false);
+    }
+  };
 
   const formatCurrency = (amount: number) => {
     const safeAmount = amount || 0;
@@ -278,8 +387,25 @@ export default function PaperTradingDashboard() {
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
               <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
-              <span className="text-emerald-400 text-sm font-medium">Live</span>
+              <span className="text-emerald-400 text-sm font-medium">Live Data</span>
             </div>
+            <button
+              onClick={() => setShowExecuteModal(true)}
+              disabled={isExecuting}
+              className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-lg transition-all duration-200 font-medium shadow-lg hover:shadow-blue-500/25 disabled:opacity-50"
+            >
+              {isExecuting ? (
+                <>
+                  <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full inline-block mr-2" />
+                  Executing...
+                </>
+              ) : (
+                <>
+                  <Zap className="w-4 h-4 inline-block mr-2" />
+                  Quick Trade
+                </>
+              )}
+            </button>
             <button
               onClick={() => setIsExpanded(!isExpanded)}
               className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-lg transition-colors border border-neutral-700"
@@ -287,6 +413,118 @@ export default function PaperTradingDashboard() {
               {isExpanded ? 'Collapse' : 'Expand'}
             </button>
           </div>
+        </motion.div>
+
+        {/* Live Market Prices - Always Visible at Top */}
+        <motion.div
+          variants={fadeUp}
+          custom={0}
+          className="bg-gradient-to-br from-neutral-800 to-neutral-900 border border-neutral-700 rounded-2xl p-6 mb-8"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <Activity className="w-5 h-5 text-blue-400" />
+              <h3 className="text-lg font-bold text-white">Live Market Prices</h3>
+              <span className="text-sm text-neutral-400">• Trading Pairs</span>
+            </div>
+            <div className="flex items-center gap-3">
+              {/* Auto-Trading Toggle */}
+              <button
+                onClick={toggleAutoTrading}
+                disabled={isStartingAutoTrade}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+                  autoTradingEnabled
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                    : 'bg-neutral-700 hover:bg-neutral-600 text-white'
+                }`}
+              >
+                {isStartingAutoTrade ? (
+                  <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                ) : (
+                  <>
+                    <Zap className="w-4 h-4" />
+                    {autoTradingEnabled ? 'Auto-Trading ON' : 'Auto-Trading OFF'}
+                  </>
+                )}
+              </button>
+              {autoTradingEnabled && (
+                <div className="flex items-center gap-2 px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
+                  <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+                  <span className="text-emerald-400 text-sm font-medium">24/7 Active</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Price Grid */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            {prices.map((price, index) => (
+              <motion.div
+                key={price.symbol}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.05 }}
+                className={`relative overflow-hidden rounded-xl p-4 transition-all duration-300 ${
+                  priceAnimations[price.symbol] ? 'ring-2 ring-blue-400 ring-opacity-50' : ''
+                } ${
+                  price.changePct >= 0 ? 'bg-emerald-500/10' : 'bg-red-500/10'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-bold text-white">{price.symbol}/USDT</span>
+                  {price.changePct >= 0 ? (
+                    <TrendingUp className="w-4 h-4 text-emerald-400" />
+                  ) : (
+                    <TrendingDown className="w-4 h-4 text-red-400" />
+                  )}
+                </div>
+                <div className="mb-1">
+                  <span className="text-lg font-mono font-bold text-white">
+                    ${price.price.toLocaleString()}
+                  </span>
+                </div>
+                <div className={`text-sm font-medium ${
+                  price.changePct >= 0 ? 'text-emerald-400' : 'text-red-400'
+                }`}>
+                  {formatPercentage(price.changePct)}
+                </div>
+              </motion.div>
+            ))}
+          </div>
+
+          {/* Auto-Trading Status */}
+          {autoTradingStatus && (
+            <div className="mt-4 pt-4 border-t border-neutral-700">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <div className="text-neutral-400 text-xs">Last Scan</div>
+                  <div className="text-white text-sm font-medium">
+                    {autoTradingStatus.stats.lastCheck 
+                      ? new Date(autoTradingStatus.stats.lastCheck).toLocaleTimeString()
+                      : 'Never'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-neutral-400 text-xs">Auto Trades</div>
+                  <div className="text-white text-sm font-medium">
+                    {autoTradingStatus.stats.totalTrades || 0}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-neutral-400 text-xs">Success Rate</div>
+                  <div className="text-white text-sm font-medium">
+                    {(autoTradingStatus.stats.successRate || 0).toFixed(1)}%
+                  </div>
+                </div>
+                <div>
+                  <div className="text-neutral-400 text-xs">Next Scan</div>
+                  <div className="text-white text-sm font-medium">
+                    {autoTradingEnabled ? 'In ~5 min' : 'Disabled'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </motion.div>
 
         {/* Main Stats Grid */}
@@ -633,6 +871,82 @@ export default function PaperTradingDashboard() {
           </div>
         </motion.div>
       </div>
+
+      {/* Quick Trade Modal */}
+      {showExecuteModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="bg-gradient-to-br from-neutral-800 to-neutral-900 border border-neutral-700 rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl"
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold text-white">Quick Paper Trade</h3>
+              <button
+                onClick={() => setShowExecuteModal(false)}
+                className="text-neutral-400 hover:text-white transition-colors"
+              >
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Popular Pairs */}
+              <div>
+                <label className="text-sm text-neutral-400 mb-2 block">Select Pair</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {['BTC/USDT:USDT', 'ETH/USDT:USDT', 'SOL/USDT:USDT', 'ADA/USDT:USDT'].map(pair => (
+                    <button
+                      key={pair}
+                      onClick={() => {
+                        const currentPrice = getCurrentPrice(pair);
+                        executePaperTrade(pair, 'long', 100);
+                      }}
+                      className="p-3 bg-neutral-700 hover:bg-neutral-600 rounded-lg text-white font-medium transition-colors flex items-center justify-between"
+                    >
+                      <span>{pair.split('/')[0]}</span>
+                      <div className="text-right">
+                        <div className="text-xs text-neutral-400">Current</div>
+                        <div className="text-sm">{formatPrice(getCurrentPrice(pair))}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Quick Actions */}
+              <div>
+                <label className="text-sm text-neutral-400 mb-2 block">Quick Actions</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => executePaperTrade('BTC/USDT:USDT', 'long', 100)}
+                    disabled={isExecuting}
+                    className="p-4 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 rounded-lg text-white font-medium transition-all disabled:opacity-50"
+                  >
+                    <ArrowUpRight className="w-5 h-5 mx-auto mb-1" />
+                    Long BTC $100
+                  </button>
+                  <button
+                    onClick={() => executePaperTrade('BTC/USDT:USDT', 'short', 100)}
+                    disabled={isExecuting}
+                    className="p-4 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 rounded-lg text-white font-medium transition-all disabled:opacity-50"
+                  >
+                    <ArrowDownRight className="w-5 h-5 mx-auto mb-1" />
+                    Short BTC $100
+                  </button>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-neutral-700">
+                <div className="text-xs text-neutral-500 text-center">
+                  All trades use real Blowfin market data • Paper trading only
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </motion.section>
   );
 }

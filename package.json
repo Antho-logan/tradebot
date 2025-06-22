@@ -6,7 +6,10 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "paper-trade": "node start-paper-trading.js",
+    "paper-trade:bg": "node start-paper-trading.js &",
+    "paper-trade:pm2": "pm2 start start-paper-trading.js --name paper-trading"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.50.0",

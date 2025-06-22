@@ -8,12 +8,12 @@ import ccxt from 'ccxt';
  */
 // Mock data that's always available
 const GUARANTEED_MOCK_DATA = [
-  { symbol: 'BTC', price: 104000, changePct: 2.5 },
-  { symbol: 'ETH', price: 2475, changePct: 2.3 },
-  { symbol: 'SOL', price: 148, changePct: 2.4 },
-  { symbol: 'ADA', price: 0.65, changePct: 4.2 },
-  { symbol: 'LINK', price: 13.5, changePct: 4.8 },
-  { symbol: 'AVAX', price: 19.6, changePct: 4.0 }
+  { symbol: 'BTC', price: 89000, changePct: -1.2 },
+  { symbol: 'ETH', price: 3150, changePct: -0.8 },
+  { symbol: 'SOL', price: 185, changePct: -2.1 },
+  { symbol: 'ADA', price: 0.98, changePct: -1.5 },
+  { symbol: 'LINK', price: 22.5, changePct: -0.9 },
+  { symbol: 'AVAX', price: 38.6, changePct: -1.8 }
 ];
 
 // Cache for market data
@@ -55,7 +55,8 @@ async function fetchLiveData(): Promise<any[]> {
     const exchange = new ccxt.blofin({
       apiKey: process.env.BLOWFIN_API_KEY,
       secret: process.env.BLOWFIN_API_SECRET,
-      sandbox: true,
+      password: process.env.BLOWFIN_PASSPHRASE,
+      sandbox: false, // Use production API for real prices
       enableRateLimit: true,
       timeout: 8000,
     });

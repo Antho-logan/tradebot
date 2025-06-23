@@ -170,4 +170,57 @@ export async function GET(request: NextRequest) {
       );
     }
   }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const tradeId = searchParams.get('id');
+
+    if (!tradeId) {
+      return NextResponse.json(
+        { success: false, error: 'Trade ID is required' },
+        { status: 400 }
+      );
+    }
+
+    // Check if Supabase is configured
+    if (!supabase) {
+      console.log('Supabase not configured, cannot delete from database');
+      return NextResponse.json(
+        { success: false, error: 'Database not configured - cannot delete paper trades' },
+        { status: 503 }
+      );
+    }
+
+    // Delete from paper_trades table
+    const { error } = await supabase
+      .from('paper_trades')
+      .delete()
+      .eq('id', tradeId);
+
+    if (error) {
+      console.error('Error deleting paper trade:', error);
+      return NextResponse.json(
+        { success: false, error: 'Failed to delete paper trade' },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Paper trade deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('Error deleting paper trade:', error);
+    return NextResponse.json(
+      { 
+        success: false, 
+        error: 'Failed to delete paper trade',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      },
+      { status: 500 }
+    );
+  }
 } 

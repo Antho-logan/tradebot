@@ -287,3 +287,127 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const tradeId = searchParams.get('id');
+    const source = searchParams.get('source'); // 'paper_trading', 'manual', etc.
+
+    if (!tradeId) {
+      return NextResponse.json(
+        { success: false, error: 'Trade ID is required' },
+        { status: 400 }
+      );
+    }
+
+    // Handle paper trading deletions
+    if (source === 'paper_trading' || tradeId.startsWith('paper_')) {
+      if (!supabase) {
+        return NextResponse.json(
+          { success: false, error: 'Database not configured for paper trade deletion' },
+          { status: 503 }
+        );
+      }
+
+      // Extract the actual paper trade ID (remove 'paper_' prefix if present)
+      const actualId = tradeId.startsWith('paper_') ? tradeId.replace('paper_', '') : tradeId;
+
+      const { error } = await supabase
+        .from('paper_trades')
+        .delete()
+        .eq('id', actualId);
+
+      if (error) {
+        console.error('Error deleting paper trade:', error);
+        return NextResponse.json(
+          { success: false, error: 'Failed to delete paper trade' },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: 'Paper trade deleted successfully'
+      });
+    }
+
+    // Handle manual trade deletions
+    if (source === 'manual') {
+      if (!supabase) {
+        return NextResponse.json(
+          { success: false, error: 'Database not configured for manual trade deletion' },
+          { status: 503 }
+        );
+      }
+
+      const { error } = await supabase
+        .from('trade_journal')
+        .delete()
+        .eq('id', tradeId);
+
+      if (error) {
+        console.error('Error deleting manual trade:', error);
+        return NextResponse.json(
+          { success: false, error: 'Failed to delete manual trade' },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: 'Manual trade deleted successfully'
+      });
+    }
+
+    // If no specific source, try to delete from both tables
+    if (supabase) {
+      // Try paper trades first
+      const { error: paperError } = await supabase
+        .from('paper_trades')
+        .delete()
+        .eq('id', tradeId.replace('paper_', ''));
+
+      if (!paperError) {
+        return NextResponse.json({
+          success: true,
+          message: 'Trade deleted successfully from paper trades'
+        });
+      }
+
+      // Try manual trades
+      const { error: manualError } = await supabase
+        .from('trade_journal')
+        .delete()
+        .eq('id', tradeId);
+
+      if (!manualError) {
+        return NextResponse.json({
+          success: true,
+          message: 'Trade deleted successfully from manual trades'
+        });
+      }
+
+      return NextResponse.json(
+        { success: false, error: 'Trade not found in any table' },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json(
+      { success: false, error: 'Database not configured' },
+      { status: 503 }
+    );
+
+  } catch (error) {
+    console.error('Error deleting trade:', error);
+    return NextResponse.json(
+      { 
+        success: false, 
+        error: 'Failed to delete trade',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      },
+      { status: 500 }
+    );
+  }
+}

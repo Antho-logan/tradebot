@@ -161,20 +161,61 @@ export default function TradeJournalPage() {
     }
   };
 
-  const handleDeleteTrade = (id: string) => {
+  const handleDeleteTrade = async (id: string, source?: string) => {
     if (confirm('Are you sure you want to delete this trade?')) {
-      // For localStorage trades, remove from localStorage
-      const savedTrades = localStorage.getItem('tradegpt-trades');
-      if (savedTrades) {
-        try {
-          const parsedTrades = JSON.parse(savedTrades);
-          const updatedTrades = parsedTrades.filter((trade: any) => trade.id !== id);
-          localStorage.setItem('tradegpt-trades', JSON.stringify(updatedTrades));
+      try {
+        let deleted = false;
+
+        // Try different deletion strategies based on source
+        if (source === 'paper_trading') {
+          // Try paper trading API first
+          const response = await fetch(`/api/paper-trading/trades?id=${encodeURIComponent(id)}`, {
+            method: 'DELETE',
+          });
+          if (response.ok) {
+            deleted = true;
+          } else {
+            console.log('Paper trading API deletion failed, trying general API');
+          }
+        }
+
+        // If not deleted yet, try the general trade journal API
+        if (!deleted) {
+          const deleteUrl = `/api/trade-journal?id=${encodeURIComponent(id)}${source ? `&source=${source}` : ''}`;
+          const response = await fetch(deleteUrl, {
+            method: 'DELETE',
+          });
+          if (response.ok) {
+            deleted = true;
+          }
+        }
+
+        // If still not deleted, try localStorage for manual trades
+        if (!deleted) {
+          const savedTrades = localStorage.getItem('tradegpt-trades');
+          if (savedTrades) {
+            try {
+              const parsedTrades = JSON.parse(savedTrades);
+              const updatedTrades = parsedTrades.filter((trade: any) => trade.id !== id);
+              if (updatedTrades.length < parsedTrades.length) {
+                localStorage.setItem('tradegpt-trades', JSON.stringify(updatedTrades));
+                deleted = true;
+              }
+            } catch (error) {
+              console.error('Error deleting trade from localStorage:', error);
+            }
+          }
+        }
+
+        if (deleted) {
           // Trigger a re-fetch to update the UI
           mutate();
-        } catch (error) {
-          console.error('Error deleting trade from localStorage:', error);
+        } else {
+          alert('Trade could not be deleted. It may not exist or you may not have permission.');
         }
+      } catch (error) {
+        console.error('Error deleting trade:', error);
+        alert('Failed to delete trade. Please try again.');
       }
     }
   };
@@ -203,23 +244,84 @@ export default function TradeJournalPage() {
   };
 
   // Delete selected trades
-  const deleteSelectedTrades = () => {
+  const deleteSelectedTrades = async () => {
     if (selectedTrades.size === 0) return;
     
     if (confirm(`Are you sure you want to delete ${selectedTrades.size} selected trade(s)?`)) {
-      const savedTrades = localStorage.getItem('tradegpt-trades');
-      if (savedTrades) {
-        try {
-          const parsedTrades = JSON.parse(savedTrades);
-          const updatedTrades = parsedTrades.filter((trade: any) => !selectedTrades.has(trade.id));
-          localStorage.setItem('tradegpt-trades', JSON.stringify(updatedTrades));
-          
-          // Clear selections and trigger re-fetch
-          clearSelection();
-          mutate();
-        } catch (error) {
-          console.error('Error deleting selected trades:', error);
+      try {
+        // Get the selected trade objects to know their sources
+        const tradesToDelete = filteredTrades.filter(trade => selectedTrades.has(trade.id));
+        let deletedCount = 0;
+        
+        // Delete each trade with multiple strategies
+        for (const trade of tradesToDelete) {
+          let deleted = false;
+
+          // Strategy 1: Try specific API based on source
+          if (trade.source === 'paper_trading') {
+            try {
+              const response = await fetch(`/api/paper-trading/trades?id=${encodeURIComponent(trade.id)}`, {
+                method: 'DELETE',
+              });
+              if (response.ok) {
+                deleted = true;
+                deletedCount++;
+              }
+            } catch (error) {
+              console.error(`Error deleting paper trade ${trade.id}:`, error);
+            }
+          }
+
+          // Strategy 2: Try general API if not deleted yet
+          if (!deleted) {
+            try {
+              const deleteUrl = `/api/trade-journal?id=${encodeURIComponent(trade.id)}&source=${trade.source}`;
+              const response = await fetch(deleteUrl, {
+                method: 'DELETE',
+              });
+              if (response.ok) {
+                deleted = true;
+                deletedCount++;
+              }
+            } catch (error) {
+              console.error(`Error deleting trade via API ${trade.id}:`, error);
+            }
+          }
+
+          // Strategy 3: Try localStorage for manual trades
+          if (!deleted && trade.source === 'manual') {
+            try {
+              const savedTrades = localStorage.getItem('tradegpt-trades');
+              if (savedTrades) {
+                const parsedTrades = JSON.parse(savedTrades);
+                const updatedTrades = parsedTrades.filter((t: any) => t.id !== trade.id);
+                if (updatedTrades.length < parsedTrades.length) {
+                  localStorage.setItem('tradegpt-trades', JSON.stringify(updatedTrades));
+                  deleted = true;
+                  deletedCount++;
+                }
+              }
+            } catch (error) {
+              console.error(`Error deleting from localStorage ${trade.id}:`, error);
+            }
+          }
         }
+        
+        // Clear selections and trigger re-fetch
+        clearSelection();
+        mutate();
+
+        // Show result to user
+        if (deletedCount === tradesToDelete.length) {
+          alert(`Successfully deleted ${deletedCount} trade(s).`);
+        } else if (deletedCount > 0) {
+          alert(`Deleted ${deletedCount} out of ${tradesToDelete.length} trade(s). Some trades could not be deleted.`);
+        } else {
+          alert('No trades could be deleted. Please try again.');
+        }
+      } catch (error) {
+        console.error('Error deleting selected trades:', error);
+        alert('Error occurred while deleting trades. Please try again.');
       }
     }
   };
@@ -650,7 +752,7 @@ export default function TradeJournalPage() {
                             <Eye className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => handleDeleteTrade(trade.id)}
+                            onClick={() => handleDeleteTrade(trade.id, trade.source)}
                             className="p-1 text-neutral-400 hover:text-red-400 transition-colors"
                             title="Delete trade"
                           >

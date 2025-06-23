@@ -77,6 +77,8 @@ export default function TradeJournalPage() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [sortField, setSortField] = useState<keyof Trade>('created_at');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [selectedTrades, setSelectedTrades] = useState<Set<string>>(new Set());
+  const [isSelectMode, setIsSelectMode] = useState(false);
 
   // Fetch trades from API (includes both manual and paper trades)
   const { data: tradesData, error, mutate } = useSWR('/api/trade-journal', fetcher, {
@@ -177,6 +179,69 @@ export default function TradeJournalPage() {
     }
   };
 
+  // Toggle trade selection
+  const toggleTradeSelection = (tradeId: string) => {
+    const newSelected = new Set(selectedTrades);
+    if (newSelected.has(tradeId)) {
+      newSelected.delete(tradeId);
+    } else {
+      newSelected.add(tradeId);
+    }
+    setSelectedTrades(newSelected);
+  };
+
+  // Select all visible trades
+  const selectAllTrades = () => {
+    const allTradeIds = new Set(filteredTrades.map(trade => trade.id));
+    setSelectedTrades(allTradeIds);
+  };
+
+  // Clear all selections
+  const clearSelection = () => {
+    setSelectedTrades(new Set());
+    setIsSelectMode(false);
+  };
+
+  // Delete selected trades
+  const deleteSelectedTrades = () => {
+    if (selectedTrades.size === 0) return;
+    
+    if (confirm(`Are you sure you want to delete ${selectedTrades.size} selected trade(s)?`)) {
+      const savedTrades = localStorage.getItem('tradegpt-trades');
+      if (savedTrades) {
+        try {
+          const parsedTrades = JSON.parse(savedTrades);
+          const updatedTrades = parsedTrades.filter((trade: any) => !selectedTrades.has(trade.id));
+          localStorage.setItem('tradegpt-trades', JSON.stringify(updatedTrades));
+          
+          // Clear selections and trigger re-fetch
+          clearSelection();
+          mutate();
+        } catch (error) {
+          console.error('Error deleting selected trades:', error);
+        }
+      }
+    }
+  };
+
+  // Clear all old trades (for testing)
+  const clearAllOldTrades = () => {
+    if (confirm('⚠️ This will delete ALL trades from localStorage (manual trades). Paper trading data will remain. Continue?')) {
+      localStorage.removeItem('tradegpt-trades');
+      clearSelection();
+      mutate();
+    }
+  };
+
+  // Go back to previous page
+  const goBack = () => {
+    if (window.history.length > 1) {
+      window.history.back();
+    } else {
+      window.location.href = '/';
+    }
+  };
+
   const formatDate = (timestamp: string) => {
     return new Date(timestamp).toLocaleDateString('en-US', {
       month: 'short',
@@ -208,29 +273,75 @@ export default function TradeJournalPage() {
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <Link 
-                href="/"
+              <button
+                onClick={goBack}
                 className="flex items-center gap-2 text-neutral-300 hover:text-emerald-400 transition-colors"
               >
                 <ArrowLeft className="w-5 h-5" />
-                Back to Dashboard
-              </Link>
+                Back
+              </button>
               <div className="w-px h-6 bg-neutral-700"></div>
               <h1 className="text-2xl font-bold">Trade Journal</h1>
+              {selectedTrades.size > 0 && (
+                <span className="px-3 py-1 bg-blue-600 text-white text-sm font-medium rounded-full">
+                  {selectedTrades.size} selected
+                </span>
+              )}
             </div>
             
             <div className="flex items-center gap-3">
-              <button className="flex items-center gap-2 px-4 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg transition-colors">
-                <Download className="w-4 h-4" />
-                Export CSV
-              </button>
-              <Link 
-                href="/#trade-journal"
-                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-                Add Trade
-              </Link>
+              {/* Selection Controls */}
+              {isSelectMode ? (
+                <>
+                  <button
+                    onClick={selectAllTrades}
+                    className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm"
+                  >
+                    Select All ({filteredTrades.length})
+                  </button>
+                  <button
+                    onClick={deleteSelectedTrades}
+                    disabled={selectedTrades.size === 0}
+                    className="flex items-center gap-2 px-3 py-2 bg-red-600 hover:bg-red-700 disabled:bg-neutral-700 disabled:text-neutral-400 text-white rounded-lg transition-colors text-sm"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete ({selectedTrades.size})
+                  </button>
+                  <button
+                    onClick={clearSelection}
+                    className="flex items-center gap-2 px-3 py-2 bg-neutral-700 hover:bg-neutral-600 text-white rounded-lg transition-colors text-sm"
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => setIsSelectMode(true)}
+                    className="flex items-center gap-2 px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-lg transition-colors text-sm"
+                  >
+                    Select Trades
+                  </button>
+                  <button
+                    onClick={clearAllOldTrades}
+                    className="flex items-center gap-2 px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-colors text-sm"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Clear Old
+                  </button>
+                  <button className="flex items-center gap-2 px-4 py-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg transition-colors">
+                    <Download className="w-4 h-4" />
+                    Export CSV
+                  </button>
+                  <Link 
+                    href="/#trade-journal"
+                    className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Trade
+                  </Link>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -318,6 +429,16 @@ export default function TradeJournalPage() {
             <table className="w-full">
               <thead className="bg-neutral-800 border-b border-neutral-700">
                 <tr>
+                  {isSelectMode && (
+                    <th className="text-left p-4 font-medium text-neutral-300 w-12">
+                      <input
+                        type="checkbox"
+                        checked={selectedTrades.size === filteredTrades.length && filteredTrades.length > 0}
+                        onChange={selectedTrades.size === filteredTrades.length ? clearSelection : selectAllTrades}
+                        className="w-4 h-4 text-blue-600 bg-neutral-700 border-neutral-600 rounded focus:ring-blue-500 focus:ring-2"
+                      />
+                    </th>
+                  )}
                   <th className="text-left p-4 font-medium text-neutral-300">
                     <button 
                       onClick={() => handleSort('created_at')}
@@ -374,7 +495,7 @@ export default function TradeJournalPage() {
               <tbody>
                 {filteredTrades.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="text-center py-12 text-neutral-400">
+                    <td colSpan={isSelectMode ? 13 : 12} className="text-center py-12 text-neutral-400">
                       <div className="flex flex-col items-center gap-3">
                         <Target className="w-12 h-12 text-neutral-600" />
                         <p>No trades found</p>
@@ -397,6 +518,16 @@ export default function TradeJournalPage() {
                     
                     return (
                     <tr key={trade.id} className="border-b border-neutral-800 hover:bg-neutral-800/50 transition-colors">
+                      {isSelectMode && (
+                        <td className="p-4">
+                          <input
+                            type="checkbox"
+                            checked={selectedTrades.has(trade.id)}
+                            onChange={() => toggleTradeSelection(trade.id)}
+                            className="w-4 h-4 text-blue-600 bg-neutral-700 border-neutral-600 rounded focus:ring-blue-500 focus:ring-2"
+                          />
+                        </td>
+                      )}
                       <td className="p-4 text-sm text-neutral-300">
                         {formatDate(tradeDate)}
                       </td>
